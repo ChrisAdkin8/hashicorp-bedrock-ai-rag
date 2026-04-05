@@ -1,0 +1,200 @@
+{
+  "Comment": "HashiCorp RAG pipeline: CodeBuild ingestion -> Bedrock Knowledge Base sync -> validation",
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Parameters": {
+        "knowledge_base_id.$": "States.JsonMerge(States.StringToJson('{\"default\": \"\"}'), States.StringToJson(States.Format('{{\"value\": \"{}\"}}', States.JsonToString($.knowledge_base_id))), false).value",
+        "data_source_id.$": "$.data_source_id",
+        "bucket_name.$": "$.bucket_name",
+        "repo_url.$": "$.repo_url",
+        "region.$": "$.region",
+        "validationQueries": [
+          {
+            "topic": "terraform-provider",
+            "query": "How do I configure the AWS provider in Terraform?"
+          },
+          {
+            "topic": "vault",
+            "query": "How do I generate dynamic database credentials using HashiCorp Vault?"
+          },
+          {
+            "topic": "consul",
+            "query": "How do I set up mTLS between services using Consul Connect?"
+          },
+          {
+            "topic": "nomad",
+            "query": "How do I define a Nomad job specification for a Docker container?"
+          },
+          {
+            "topic": "sentinel",
+            "query": "How do I write a Sentinel policy to restrict resource creation in Terraform?"
+          },
+          {
+            "topic": "packer",
+            "query": "How do I build an AMI with Packer using an HCL template?"
+          },
+          {
+            "topic": "terraform-module",
+            "query": "What is the structure of a reusable Terraform module?"
+          },
+          {
+            "topic": "github-issue",
+            "query": "What are common issues when upgrading the Terraform AWS provider?"
+          },
+          {
+            "topic": "discuss-thread",
+            "query": "How do I troubleshoot Terraform state locking errors?"
+          },
+          {
+            "topic": "blog-post",
+            "query": "What new features were announced for HashiCorp products?"
+          }
+        ]
+      },
+      "Next": "StartBuild"
+    },
+
+    "StartBuild": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${codebuild_project_name}",
+        "EnvironmentVariablesOverride": [
+          {
+            "Name": "RAG_BUCKET",
+            "Value.$": "$.bucket_name",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "REPO_URL",
+            "Value.$": "$.repo_url",
+            "Type": "PLAINTEXT"
+          }
+        ]
+      },
+      "ResultPath": "$.buildResult",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "BuildFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "StartIngestionJob"
+    },
+
+    "BuildFailed": {
+      "Type": "Fail",
+      "Error": "CodeBuildFailed",
+      "Cause": "CodeBuild project failed after retries — check CloudWatch Logs for details."
+    },
+
+    "StartIngestionJob": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:bedrockagent:startIngestionJob",
+      "Parameters": {
+        "KnowledgeBaseId.$": "$.knowledge_base_id",
+        "DataSourceId.$": "$.data_source_id"
+      },
+      "ResultPath": "$.ingestionResult",
+      "Next": "WaitForIngestion"
+    },
+
+    "WaitForIngestion": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "GetIngestionStatus"
+    },
+
+    "GetIngestionStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:bedrockagent:getIngestionJob",
+      "Parameters": {
+        "KnowledgeBaseId.$": "$.knowledge_base_id",
+        "DataSourceId.$": "$.data_source_id",
+        "IngestionJobId.$": "$.ingestionResult.IngestionJob.IngestionJobId"
+      },
+      "ResultPath": "$.ingestionStatus",
+      "Next": "CheckIngestionStatus"
+    },
+
+    "CheckIngestionStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.ingestionStatus.IngestionJob.Status",
+          "StringEquals": "COMPLETE",
+          "Next": "ValidateRetrieval"
+        },
+        {
+          "Variable": "$.ingestionStatus.IngestionJob.Status",
+          "StringEquals": "FAILED",
+          "Next": "IngestionFailed"
+        }
+      ],
+      "Default": "WaitForIngestion"
+    },
+
+    "IngestionFailed": {
+      "Type": "Fail",
+      "Error": "IngestionFailed",
+      "Cause": "Bedrock Knowledge Base ingestion job failed — check ingestionStatus for details."
+    },
+
+    "ValidateRetrieval": {
+      "Type": "Map",
+      "ItemsPath": "$.validationQueries",
+      "ItemSelector": {
+        "KnowledgeBaseId.$": "$.knowledge_base_id",
+        "Topic.$": "$$.Map.Item.Value.topic",
+        "QueryText.$": "$$.Map.Item.Value.query"
+      },
+      "MaxConcurrency": 5,
+      "Iterator": {
+        "StartAt": "RunQuery",
+        "States": {
+          "RunQuery": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:bedrockagentruntime:retrieve",
+            "Parameters": {
+              "KnowledgeBaseId.$": "$.KnowledgeBaseId",
+              "RetrievalQuery": {
+                "Text.$": "$.QueryText"
+              },
+              "RetrievalConfiguration": {
+                "VectorSearchConfiguration": {
+                  "NumberOfResults": 5
+                }
+              }
+            },
+            "ResultPath": "$.retrievalResult",
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.validationResults",
+      "Next": "PipelineComplete"
+    },
+
+    "PipelineComplete": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "SUCCEEDED",
+        "knowledge_base_id.$": "$.knowledge_base_id",
+        "data_source_id.$": "$.data_source_id",
+        "ingestion_job_id.$": "$.ingestionResult.IngestionJob.IngestionJobId"
+      },
+      "End": true
+    }
+  }
+}

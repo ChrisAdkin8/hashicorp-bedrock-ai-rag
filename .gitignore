@@ -1,0 +1,54 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*.auto.tfvars
+!terraform/terraform.tfvars.example
+.terraform.lock.hcl
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+kb.auto.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+aws_credentials
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+/codebuild/output/
+/repos/
+
+# Claude local settings
+.claude/settings.local.json

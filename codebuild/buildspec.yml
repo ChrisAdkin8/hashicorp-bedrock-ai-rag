@@ -1,0 +1,44 @@
+version: 0.2
+
+env:
+  secrets-manager:
+    GITHUB_TOKEN: "github-token:token"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - pip install -r codebuild/scripts/requirements.txt
+
+  pre_build:
+    commands:
+      - echo "Cloning HashiCorp repositories..."
+      - bash codebuild/scripts/clone_repos.sh
+      - python3 codebuild/scripts/discover_modules.py
+      - bash codebuild/scripts/clone_modules.sh
+
+  build:
+    commands:
+      - echo "Processing documentation (semantic section splitting)..."
+      - python3 codebuild/scripts/process_docs.py
+      - echo "Fetching API sources in parallel..."
+      - |
+        python3 codebuild/scripts/fetch_github_issues.py &
+        python3 codebuild/scripts/fetch_discuss.py &
+        python3 codebuild/scripts/fetch_blogs.py &
+        wait
+      - echo "Deduplicating across all sources..."
+      - python3 codebuild/scripts/deduplicate.py
+      - echo "Generating metadata sidecar files..."
+      - python3 codebuild/scripts/generate_metadata.py --bucket "${RAG_BUCKET}"
+
+  post_build:
+    commands:
+      - echo "Uploading processed documents to S3..."
+      - aws s3 sync /codebuild/output/cleaned/ "s3://${RAG_BUCKET}/" --delete
+      - echo "Upload complete."
+
+cache:
+  paths:
+    - '/root/.cache/pip/**/*'

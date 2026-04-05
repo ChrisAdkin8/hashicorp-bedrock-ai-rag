@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — never commit it.
+
+region              = "us-west-2"
+repo_uri            = "https://github.com/your-org/hashicorp-bedrock-ai-rag"
+notification_email  = ""        # Set to receive CloudWatch alarm emails
+
+# Optional overrides — defaults are safe for most deployments
+# knowledge_base_name = "hashicorp-knowledge-base"
+# collection_name     = "hashicorp-rag-vectors"
+# refresh_schedule    = "cron(0 2 ? * SUN *)"
+# scheduler_timezone  = "Europe/London"
+# chunk_size          = 1024
+# chunk_overlap_pct   = 20

@@ -1,0 +1,279 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1050" width="1400" height="1050">
+  <defs>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; }
+      .label-sm  { font-size: 11px; fill: #a0aec0; }
+      .label-md  { font-size: 13px; fill: #e2e8f0; }
+      .label-lg  { font-size: 15px; fill: #ffffff; font-weight: 600; }
+      .label-xl  { font-size: 17px; fill: #ffffff; font-weight: 700; }
+      .section-title { font-size: 12px; font-weight: 700; fill: #94a3b8; letter-spacing: 1px; }
+    </style>
+    <marker id="arr-white" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e2e8f0"/>
+    </marker>
+    <marker id="arr-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+    </marker>
+    <marker id="arr-yellow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+    </marker>
+    <marker id="arr-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4ade80"/>
+    </marker>
+    <marker id="arr-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#c084fc"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1050" fill="#0a0a0f"/>
+
+  <!-- Title -->
+  <text x="700" y="42" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">HashiCorp RAG Pipeline — High-Level Architecture</text>
+  <text x="700" y="64" text-anchor="middle" class="label-sm">Bedrock Knowledge Base on AWS, provisioned by Terraform</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ROW 1: IaC -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <text x="100" y="102" class="section-title">INFRASTRUCTURE AS CODE</text>
+
+  <!-- Terraform -->
+  <rect x="80" y="112" width="200" height="72" rx="8" fill="#1c1917" stroke="#a78bfa" stroke-width="2"/>
+  <text x="180" y="143" text-anchor="middle" class="label-lg">Terraform</text>
+  <text x="180" y="161" text-anchor="middle" class="label-sm">Provisions all AWS resources</text>
+  <text x="180" y="175" text-anchor="middle" class="label-sm">Remote state in S3</text>
+
+  <!-- CI/CD -->
+  <rect x="410" y="112" width="220" height="72" rx="8" fill="#1c1917" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="520" y="143" text-anchor="middle" class="label-lg">GitHub Actions CI</text>
+  <text x="520" y="161" text-anchor="middle" class="label-sm">fmt · validate · Trivy scan</text>
+  <text x="520" y="175" text-anchor="middle" class="label-sm">OIDC Federation</text>
+
+  <!-- Terraform → AWS (arrow down) -->
+  <line x1="180" y1="184" x2="180" y2="225" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-purple)"/>
+  <text x="195" y="210" class="label-sm" fill="#a78bfa">provisions</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ROW 1: Trigger -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <text x="780" y="102" class="section-title">TRIGGER</text>
+
+  <!-- EventBridge Scheduler -->
+  <rect x="760" y="112" width="200" height="72" rx="8" fill="#1e1b4b" stroke="#818cf8" stroke-width="2"/>
+  <text x="860" y="136" text-anchor="middle" class="label-lg">EventBridge</text>
+  <text x="860" y="154" text-anchor="middle" class="label-lg">Scheduler</text>
+  <text x="860" y="172" text-anchor="middle" class="label-sm">Weekly cron (Sun 02:00 UTC)</text>
+
+  <!-- Arrow Scheduler → Step Functions -->
+  <line x1="960" y1="148" x2="1088" y2="148" stroke="#818cf8" stroke-width="2" marker-end="url(#arr-white)"/>
+  <text x="1024" y="140" text-anchor="middle" class="label-sm">trigger</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ROW 1: Orchestrator -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <text x="1110" y="102" class="section-title">ORCHESTRATOR</text>
+
+  <!-- Step Functions -->
+  <rect x="1090" y="112" width="230" height="72" rx="8" fill="#172554" stroke="#38bdf8" stroke-width="2.5"/>
+  <text x="1205" y="143" text-anchor="middle" class="label-xl">Step Functions</text>
+  <text x="1205" y="161" text-anchor="middle" class="label-sm">6-step pipeline orchestration</text>
+  <text x="1205" y="175" text-anchor="middle" class="label-sm">Durable execution · .sync for CodeBuild</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- AWS ACCOUNT BOUNDARY BOX -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <rect x="60" y="225" width="1300" height="620" rx="12" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="8,4"/>
+  <text x="90" y="248" class="section-title">AWS ACCOUNT  ·  us-east-1 (configurable)</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- CloudWatch + SNS -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <rect x="595" y="530" width="230" height="120" rx="8" fill="#1a0f00" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="710" y="558" text-anchor="middle" class="label-md" fill="#fcd34d">CloudWatch + SNS</text>
+  <text x="710" y="578" text-anchor="middle" class="label-sm">Pipeline execution alerts</text>
+  <text x="710" y="596" text-anchor="middle" class="label-sm">CodeBuild failure notifications</text>
+  <text x="710" y="614" text-anchor="middle" class="label-sm">Email via SNS (optional)</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- CodeBuild -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <text x="635" y="248" text-anchor="middle" class="section-title">DATA INGESTION</text>
+
+  <rect x="80" y="268" width="1110" height="220" rx="10" fill="#0f172a" stroke="#0ea5e9" stroke-width="2"/>
+  <text x="590" y="290" text-anchor="middle" class="label-lg" fill="#38bdf8">CodeBuild  (MEDIUM compute · 2hr timeout · amazonlinux2-x86_64-standard:5.0)</text>
+
+  <!-- Git clone track -->
+  <rect x="95" y="312" width="530" height="162" rx="7" fill="#0c1a2e" stroke="#0284c7" stroke-width="1.5"/>
+  <text x="360" y="334" text-anchor="middle" class="label-md" fill="#7dd3fc">Git Clone Track</text>
+
+  <rect x="110" y="346" width="200" height="46" rx="5" fill="#1e3a5f" stroke="#0369a1" stroke-width="1"/>
+  <text x="210" y="364" text-anchor="middle" class="label-sm">clone_repos.sh</text>
+  <text x="210" y="380" text-anchor="middle" class="label-sm">9 core · 14 providers · 4 sentinel</text>
+
+  <rect x="410" y="346" width="200" height="46" rx="5" fill="#1e3a5f" stroke="#0369a1" stroke-width="1"/>
+  <text x="510" y="364" text-anchor="middle" class="label-sm">discover_modules.py</text>
+  <text x="510" y="380" text-anchor="middle" class="label-sm">Terraform Registry API → clone</text>
+
+  <line x1="310" y1="369" x2="408" y2="369" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+
+  <rect x="110" y="410" width="500" height="52" rx="5" fill="#1c3151" stroke="#0369a1" stroke-width="1"/>
+  <text x="360" y="430" text-anchor="middle" class="label-md" fill="#7dd3fc">process_docs.py</text>
+  <text x="360" y="445" text-anchor="middle" class="label-sm">Section split · metadata enrichment · URL attribution</text>
+  <text x="360" y="457" text-anchor="middle" class="label-sm">doc_category · resource_type · product_family</text>
+
+  <line x1="210" y1="392" x2="210" y2="408" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+  <line x1="510" y1="392" x2="510" y2="408" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+
+  <!-- API fetch track -->
+  <rect x="640" y="312" width="535" height="162" rx="7" fill="#0f1f12" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="907" y="334" text-anchor="middle" class="label-md" fill="#86efac">API Fetch Track  (parallel)</text>
+
+  <rect x="650" y="346" width="150" height="50" rx="5" fill="#14532d" stroke="#15803d" stroke-width="1"/>
+  <text x="725" y="364" text-anchor="middle" class="label-sm">fetch_github_issues.py</text>
+  <text x="725" y="380" text-anchor="middle" class="label-sm">GitHub REST API</text>
+
+  <rect x="832" y="346" width="150" height="50" rx="5" fill="#14532d" stroke="#15803d" stroke-width="1"/>
+  <text x="907" y="364" text-anchor="middle" class="label-sm">fetch_discuss.py</text>
+  <text x="907" y="380" text-anchor="middle" class="label-sm">Discourse JSON API</text>
+
+  <rect x="1015" y="346" width="150" height="50" rx="5" fill="#14532d" stroke="#15803d" stroke-width="1"/>
+  <text x="1090" y="364" text-anchor="middle" class="label-sm">fetch_blogs.py</text>
+  <text x="1090" y="380" text-anchor="middle" class="label-sm">Atom / RSS feeds</text>
+
+  <line x1="725" y1="396" x2="725" y2="414" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arr-green)"/>
+  <line x1="907" y1="396" x2="907" y2="414" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arr-green)"/>
+  <line x1="1090" y1="396" x2="1090" y2="414" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arr-green)"/>
+
+  <rect x="650" y="416" width="515" height="46" rx="5" fill="#1a3a21" stroke="#15803d" stroke-width="1"/>
+  <text x="907" y="434" text-anchor="middle" class="label-sm">/codebuild/output/cleaned/  (issues · discuss · blog)</text>
+  <text x="907" y="450" text-anchor="middle" class="label-sm">HTML→Markdown · accepted-answer ordering · product_family tags</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- IAM Roles -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <rect x="905" y="530" width="230" height="120" rx="8" fill="#1a1a2e" stroke="#64748b" stroke-width="1.5"/>
+  <text x="1020" y="556" text-anchor="middle" class="label-md">IAM Roles</text>
+  <text x="1020" y="574" text-anchor="middle" class="label-sm">bedrock-kb · codebuild · sfn</text>
+  <text x="1020" y="592" text-anchor="middle" class="label-sm">scheduler · github-oidc</text>
+  <text x="1020" y="610" text-anchor="middle" class="label-sm">Least-privilege · no static keys</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- S3 Bucket -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <rect x="285" y="530" width="230" height="120" rx="8" fill="#1c1917" stroke="#f59e0b" stroke-width="2"/>
+  <text x="400" y="556" text-anchor="middle" class="label-lg" fill="#fcd34d">S3 Bucket</text>
+  <text x="400" y="574" text-anchor="middle" class="label-sm">{project}-rag-docs-{hash}</text>
+  <text x="400" y="590" text-anchor="middle" class="label-sm">KMS encrypted · versioning</text>
+  <text x="400" y="606" text-anchor="middle" class="label-sm">90-day noncurrent expiration</text>
+  <text x="400" y="622" text-anchor="middle" class="label-sm">Staging area for KB import</text>
+
+  <!-- Arrow CodeBuild → S3 -->
+  <line x1="400" y1="488" x2="400" y2="528" stroke="#22d3ee" stroke-width="2.5" marker-end="url(#arr-cyan)"/>
+  <text x="452" y="514" class="label-sm" fill="#22d3ee">aws s3 sync --delete</text>
+
+  <!-- Arrow S3 → Bedrock KB -->
+  <line x1="400" y1="650" x2="400" y2="688" stroke="#f59e0b" stroke-width="2.5" marker-end="url(#arr-yellow)"/>
+  <text x="420" y="675" class="label-sm" fill="#fcd34d">import</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- Bedrock Knowledge Base (Vector Store) -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <text x="80" y="682" class="section-title">VECTOR STORE</text>
+
+  <rect x="80" y="690" width="1260" height="130" rx="10" fill="#1a0a2e" stroke="#a855f7" stroke-width="2.5"/>
+  <text x="700" y="716" text-anchor="middle" class="label-xl" fill="#d8b4fe">Bedrock Knowledge Base</text>
+
+  <rect x="170" y="732" width="210" height="68" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="275" y="756" text-anchor="middle" class="label-md" fill="#c4b5fd">Embedding</text>
+  <text x="275" y="773" text-anchor="middle" class="label-sm">Titan Embed V2</text>
+  <text x="275" y="788" text-anchor="middle" class="label-sm">1024-token chunks · 20% overlap</text>
+
+  <rect x="460" y="732" width="210" height="68" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="565" y="756" text-anchor="middle" class="label-md" fill="#c4b5fd">Vector Store</text>
+  <text x="565" y="773" text-anchor="middle" class="label-sm">OpenSearch Serverless</text>
+  <text x="565" y="788" text-anchor="middle" class="label-sm">HNSW · faiss · 2 OCU min</text>
+
+  <rect x="750" y="732" width="210" height="68" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="855" y="756" text-anchor="middle" class="label-md" fill="#c4b5fd">Retrieval</text>
+  <text x="855" y="773" text-anchor="middle" class="label-sm">Hybrid search (vector + BM25)</text>
+  <text x="855" y="788" text-anchor="middle" class="label-sm">min_score: 0.5</text>
+
+  <rect x="1040" y="732" width="210" height="68" rx="6" fill="#2e1065" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="1145" y="756" text-anchor="middle" class="label-md" fill="#c4b5fd">Metadata Filter</text>
+  <text x="1145" y="773" text-anchor="middle" class="label-sm">source_type · product</text>
+  <text x="1145" y="788" text-anchor="middle" class="label-sm">product_family · .jsonl sidecars</text>
+
+  <!-- Inter-box arrows inside Bedrock KB -->
+  <line x1="380" y1="766" x2="458" y2="766" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <line x1="670" y1="766" x2="748" y2="766" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <line x1="960" y1="766" x2="1038" y2="766" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- Consumers -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <text x="80" y="872" class="section-title">CONSUMERS</text>
+
+  <rect x="80" y="880" width="1260" height="72" rx="8" fill="#0a0a0f" stroke="#334155" stroke-width="1.5"/>
+
+  <rect x="150" y="890" width="250" height="52" rx="6" fill="#0d1f12" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="275" y="912" text-anchor="middle" class="label-md" fill="#86efac">Bedrock Agent</text>
+  <text x="275" y="928" text-anchor="middle" class="label-sm">Native KB grounding</text>
+
+  <rect x="440" y="890" width="250" height="52" rx="6" fill="#0d1a2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="565" y="912" text-anchor="middle" class="label-md" fill="#93c5fd">Claude Code</text>
+  <text x="565" y="928" text-anchor="middle" class="label-sm">via MCP server</text>
+
+  <rect x="730" y="890" width="250" height="52" rx="6" fill="#2d1b00" stroke="#f97316" stroke-width="1.5"/>
+  <text x="855" y="912" text-anchor="middle" class="label-md" fill="#fdba74">Claude / other LLMs</text>
+  <text x="855" y="928" text-anchor="middle" class="label-sm">retrieve-then-prompt</text>
+
+  <rect x="1020" y="890" width="250" height="52" rx="6" fill="#1a1a1a" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="1145" y="912" text-anchor="middle" class="label-md" fill="#cbd5e1">MCP Server</text>
+  <text x="1145" y="928" text-anchor="middle" class="label-sm">Any MCP-compatible client</text>
+
+  <!-- KB → Consumers -->
+  <line x1="700" y1="820" x2="700" y2="878" stroke="#a855f7" stroke-width="2" marker-end="url(#arr-purple)"/>
+  <text x="720" y="858" class="label-sm" fill="#c084fc">retrieve</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- Step Functions workflow arrows -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- Step Functions → CodeBuild -->
+  <line x1="1130" y1="184" x2="1130" y2="268" stroke="#38bdf8" stroke-width="2" marker-end="url(#arr-cyan)"/>
+  <text x="1158" y="220" class="label-sm" fill="#38bdf8">StartBuild (.sync)</text>
+
+  <!-- Step Functions → S3 import (dashed) -->
+  <line x1="1240" y1="184" x2="1240" y2="688" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-cyan)"/>
+  <text x="1258" y="670" class="label-sm" fill="#38bdf8">import</text>
+
+  <!-- Step Functions → Validate (dashed) -->
+  <line x1="1295" y1="184" x2="1295" y2="688" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-cyan)"/>
+  <text x="1313" y="656" class="label-sm" fill="#38bdf8">validate</text>
+
+  <!-- Monitoring alert from CodeBuild -->
+  <line x1="710" y1="488" x2="710" y2="528" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-yellow)"/>
+  <text x="730" y="514" class="label-sm" fill="#fcd34d">alerts</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- Legend -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <rect x="280" y="960" width="840" height="60" rx="8" fill="#0f0f17" stroke="#334155" stroke-width="1.5"/>
+  <text x="330" y="996" class="section-title">LEGEND</text>
+
+  <line x1="398" y1="990" x2="438" y2="990" stroke="#38bdf8" stroke-width="2" marker-end="url(#arr-cyan)"/>
+  <text x="445" y="994" class="label-sm">data / control flow</text>
+
+  <line x1="580" y1="990" x2="620" y2="990" stroke="#a855f7" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arr-purple)"/>
+  <text x="627" y="994" class="label-sm">provisioning</text>
+
+  <line x1="722" y1="990" x2="762" y2="990" stroke="#f59e0b" stroke-width="2" marker-end="url(#arr-yellow)"/>
+  <text x="769" y="994" class="label-sm">import / storage</text>
+
+  <line x1="878" y1="990" x2="918" y2="990" stroke="#4ade80" stroke-width="2" marker-end="url(#arr-green)"/>
+  <text x="925" y="994" class="label-sm">API fetch</text>
+
+  <rect x="998" y="984" width="20" height="12" rx="2" fill="#0a0a0f" stroke="#334155" stroke-dasharray="4,2"/>
+  <text x="1025" y="995" class="label-sm">external / optional</text>
+
+</svg>

@@ -1,0 +1,552 @@
+version: "3"
+
+# Requires: Task (https://taskfile.dev), terraform, awscli, python3
+#
+# Quick start — provision everything with one command:
+#
+#   task up REPO_URI=https://github.com/org/repo
+#
+# REGION defaults to us-west-2. Override with REGION=us-east-1 if needed.
+#
+# State and RAG bucket names are derived automatically:
+#   <ACCOUNT_ID>-tf-state-<8-char hash>
+#   hashicorp-rag-docs-<8-char hash>
+
+vars:
+  TF_DIR: terraform
+  PYTHON: .venv/bin/python3
+  REGION: '{{.REGION | default "us-west-2"}}'
+  ACCOUNT_ID:
+    sh: 'aws sts get-caller-identity --query Account --output text 2>/dev/null || echo ""'
+  STATE_BUCKET:
+    sh: 'echo "{{.ACCOUNT_ID}}-tf-state-$(echo -n "{{.ACCOUNT_ID}}" | sha256sum | cut -c1-8)"'
+  LOCK_TABLE: 'terraform-state-lock'
+  MIN_SCORE: '{{.MIN_SCORE | default "0.5"}}'
+
+tasks:
+
+  default:
+    desc: "List available tasks"
+    cmds:
+      - task --list
+
+  # ── Authentication ─────────────────────────────────────────────────────────
+
+  login:
+    desc: "Verify AWS credentials and print caller identity"
+    summary: |
+      Checks that valid AWS credentials are available (env vars, ~/.aws/credentials,
+      instance profile, or AWS SSO). Prints the current identity.
+
+      For AWS SSO:
+        aws sso login --profile my-profile
+      For IAM keys:
+        aws configure
+
+      Example:
+        task login
+    cmds:
+      - aws sts get-caller-identity
+      - echo "AWS region set to {{.REGION}}"
+
+  # ── Primary entrypoint ─────────────────────────────────────────────────────
+
+  up:
+    desc: "Full end-to-end deploy: preflight → bootstrap → apply → pipeline"
+    summary: |
+      Provisions the complete Bedrock RAG pipeline in a single command.
+      Idempotent — safe to re-run. Each step is skipped automatically if
+      already complete.
+
+      Steps:
+        0. Preflight checks (tools, auth, Python packages, files, Terraform)
+        1. Create S3 state bucket + DynamoDB lock table (bootstrap_state.sh)
+        2. terraform apply — infra (first pass)
+        3. create_knowledge_base.py — creates KB + data source, writes kb.auto.tfvars
+        4. terraform apply — second pass, wires KB/DS IDs into scheduler target
+        5. Trigger first pipeline run and wait
+
+      Required vars: REPO_URI
+      Optional vars: REGION, SKIP_PIPELINE=true
+
+      Example:
+        task up REPO_URI=https://github.com/org/repo
+        task up REPO_URI=https://github.com/org/repo REGION=eu-west-2 SKIP_PIPELINE=true
+    requires:
+      vars: [REPO_URI]
+    cmds:
+      - task: preflight
+      - |
+        scripts/deploy.sh \
+          --region   {{.REGION}}   \
+          --repo-uri {{.REPO_URI}} \
+          {{if eq .SKIP_PIPELINE "true"}}--skip-pipeline{{end}}
+
+  # ── Bootstrap (one-time, also called by `up`) ──────────────────────────────
+
+  bootstrap:
+    desc: "One-time: create S3 state bucket and DynamoDB lock table"
+    summary: |
+      Creates the S3 bucket used for Terraform state and the DynamoDB table
+      used for state locking. Called automatically by `task up`.
+
+      The bucket name is derived: <ACCOUNT_ID>-tf-state-<8-char hash>
+      The table name is: terraform-state-lock
+
+      Example:
+        task bootstrap
+    cmds:
+      - scripts/bootstrap_state.sh --region {{.REGION}}
+
+  # ── Terraform core ─────────────────────────────────────────────────────────
+
+  fmt:
+    desc: "Format all Terraform files in-place"
+    cmds:
+      - terraform -chdir={{.TF_DIR}} fmt -recursive
+
+  fmt:check:
+    desc: "Check Terraform formatting without modifying files (CI gate)"
+    cmds:
+      - terraform -chdir={{.TF_DIR}} fmt -check -recursive
+
+  init:
+    desc: "Initialise Terraform with remote S3 backend"
+    cmds:
+      - |
+        terraform -chdir={{.TF_DIR}} init \
+          -backend-config="bucket={{.STATE_BUCKET}}" \
+          -backend-config="region={{.REGION}}" \
+          -backend-config="dynamodb_table={{.LOCK_TABLE}}" \
+          -input=false
+    status:
+      - test -d {{.TF_DIR}}/.terraform
+
+  init:upgrade:
+    desc: "Re-initialise and upgrade providers"
+    cmds:
+      - |
+        terraform -chdir={{.TF_DIR}} init \
+          -backend-config="bucket={{.STATE_BUCKET}}" \
+          -backend-config="region={{.REGION}}" \
+          -backend-config="dynamodb_table={{.LOCK_TABLE}}" \
+          -input=false -upgrade
+
+  validate:
+    desc: "Run terraform validate (requires init)"
+    deps: [init]
+    cmds:
+      - terraform -chdir={{.TF_DIR}} validate
+
+  plan:
+    desc: "Run terraform plan and save to tfplan"
+    deps: [init]
+    cmds:
+      - terraform -chdir={{.TF_DIR}} plan -input=false -out=tfplan
+
+  apply:
+    desc: "Apply the most recent saved plan (requires prior 'task plan')"
+    prompt: "Apply terraform plan to AWS account {{.ACCOUNT_ID}}? This modifies real resources."
+    cmds:
+      - terraform -chdir={{.TF_DIR}} apply tfplan
+
+  destroy:
+    desc: "Destroy all Terraform-managed infrastructure"
+    deps: [init]
+    prompt: "Destroy ALL infrastructure in AWS account {{.ACCOUNT_ID}}? This is irreversible."
+    cmds:
+      - terraform -chdir={{.TF_DIR}} destroy -auto-approve -input=false
+
+  output:
+    desc: "Show Terraform outputs"
+    deps: [init]
+    cmds:
+      - terraform -chdir={{.TF_DIR}} output
+
+  # ── Knowledge Base ─────────────────────────────────────────────────────────
+
+  kb:create:
+    desc: "Create the Bedrock Knowledge Base and write kb.auto.tfvars"
+    summary: |
+      Runs create_knowledge_base.py to create the Bedrock Knowledge Base and
+      S3 data source using the OpenSearch Serverless collection provisioned by
+      Terraform. Writes knowledge_base_id and data_source_id to kb.auto.tfvars
+      so that a second terraform apply can wire them into the scheduler.
+
+      Run 'task apply' after this to complete the wiring.
+
+      Example:
+        task kb:create
+    deps: [init]
+    vars:
+      KB_ROLE_ARN:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw bedrock_kb_role_arn 2>/dev/null'
+      COLLECTION_ARN:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw opensearch_collection_arn 2>/dev/null'
+      COLLECTION_ENDPOINT:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw opensearch_collection_endpoint 2>/dev/null'
+      RAG_BUCKET:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw rag_bucket_name 2>/dev/null'
+    cmds:
+      - |
+        {{.PYTHON}} scripts/create_knowledge_base.py \
+          --region              {{.REGION}} \
+          --kb-role-arn         {{.KB_ROLE_ARN}} \
+          --collection-arn      {{.COLLECTION_ARN}} \
+          --collection-endpoint {{.COLLECTION_ENDPOINT}} \
+          --bucket-name         {{.RAG_BUCKET}} \
+          --output-id-only > {{.TF_DIR}}/kb.auto.tfvars
+      - echo "Wrote {{.TF_DIR}}/kb.auto.tfvars:"
+      - cat {{.TF_DIR}}/kb.auto.tfvars
+
+  # ── Pipeline operations ────────────────────────────────────────────────────
+
+  pipeline:run:
+    desc: "Trigger the Step Functions RAG pipeline and wait for completion"
+    summary: |
+      Starts a Step Functions execution for the RAG pipeline and polls until
+      it completes (SUCCEEDED, FAILED, TIMED_OUT, or ABORTED).
+
+      The state machine ARN, Knowledge Base ID, and Data Source ID are
+      auto-detected from Terraform output when not explicitly provided.
+
+      Example:
+        task pipeline:run
+        task pipeline:run KB_ID=ABCDEFGHIJ DS_ID=KLMNOPQRST
+    deps: [init]
+    vars:
+      STATE_MACHINE_ARN:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw state_machine_arn 2>/dev/null'
+      RAG_BUCKET:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw rag_bucket_name 2>/dev/null'
+      KB_ID:
+        sh: >
+          {{if .KB_ID}}echo "{{.KB_ID}}"{{else}}
+          grep knowledge_base_id {{.TF_DIR}}/kb.auto.tfvars 2>/dev/null | cut -d'"' -f2 || echo ""
+          {{end}}
+      DS_ID:
+        sh: >
+          {{if .DS_ID}}echo "{{.DS_ID}}"{{else}}
+          grep data_source_id {{.TF_DIR}}/kb.auto.tfvars 2>/dev/null | cut -d'"' -f2 || echo ""
+          {{end}}
+      REPO_URI:
+        sh: 'grep repo_uri {{.TF_DIR}}/terraform.tfvars 2>/dev/null | cut -d\" -f2 || echo ""'
+    cmds:
+      - |
+        scripts/run_pipeline.sh \
+          --state-machine-arn {{.STATE_MACHINE_ARN}} \
+          --region            {{.REGION}} \
+          --knowledge-base-id {{.KB_ID}} \
+          --data-source-id    {{.DS_ID}} \
+          --bucket-name       {{.RAG_BUCKET}} \
+          --repo-url          {{.REPO_URI}} \
+          --wait
+
+  pipeline:test:
+    desc: "Run retrieval quality tests against the Knowledge Base"
+    summary: |
+      Runs 10 test queries against the Bedrock Knowledge Base covering all
+      product families and source types. Reports result counts and relevance
+      scores per topic.
+
+      Example:
+        task pipeline:test KB_ID=ABCDEFGHIJ
+        task pipeline:test KB_ID=ABCDEFGHIJ MIN_SCORE=0.7
+    requires:
+      vars: [KB_ID]
+    cmds:
+      - "{{.PYTHON}} scripts/test_retrieval.py --region {{.REGION}} --knowledge-base-id {{.KB_ID}} --min-score {{.MIN_SCORE}}"
+
+  pipeline:token-efficiency:
+    desc: "Compare token efficiency of RAG retrieval vs raw documentation"
+    summary: |
+      Runs a suite of cross-product queries and compares token cost of RAG
+      retrieval against the estimated cost of pasting full documentation pages.
+
+      Outputs per-query breakdown and overall token savings summary.
+      Typical result: ~96% token reduction vs raw docs.
+
+      Optional: install tiktoken for precise token counting:
+        pip install tiktoken
+
+      Example:
+        task pipeline:token-efficiency KB_ID=ABCDEFGHIJ
+    requires:
+      vars: [KB_ID]
+    cmds:
+      - "{{.PYTHON}} scripts/test_token_efficiency.py --region {{.REGION}} --knowledge-base-id {{.KB_ID}}"
+
+  # ── Preflight checks ───────────────────────────────────────────────────────
+
+  preflight:
+    desc: "Run all preflight checks: tools, auth, Python packages, files, Terraform"
+    cmds:
+      - task: preflight:tools
+      - task: preflight:auth
+      - task: preflight:python
+      - task: preflight:files
+      - task: preflight:terraform
+      - echo ""
+      - echo "All preflight checks passed."
+
+  preflight:tools:
+    desc: "Check required CLI tools are installed"
+    cmds:
+      - |
+        fail=0
+        for cmd in terraform aws python3 pip3 git bash shellcheck jq; do
+          if command -v "$cmd" &>/dev/null; then
+            ver=$("$cmd" --version 2>&1 | head -1)
+            echo "OK: $cmd — $ver"
+          else
+            echo "MISSING: $cmd — install before proceeding"
+            fail=1
+          fi
+        done
+        if [ "$fail" -ne 0 ]; then
+          echo ""
+          echo "Install missing tools and re-run 'task preflight:tools'."
+          exit 1
+        fi
+      - |
+        # Terraform version gate (>= 1.5)
+        tf_ver=$(terraform version -json 2>/dev/null | jq -r '.terraform_version // empty')
+        if [ -z "$tf_ver" ]; then
+          tf_ver=$(terraform version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+        fi
+        major=$(echo "$tf_ver" | cut -d. -f1)
+        minor=$(echo "$tf_ver" | cut -d. -f2)
+        if [ "$major" -ge 2 ] || { [ "$major" -eq 1 ] && [ "$minor" -ge 5 ]; }; then
+          echo "OK: Terraform $tf_ver (>= 1.5)"
+        else
+          echo "FAIL: Terraform $tf_ver — need >= 1.5"
+          exit 1
+        fi
+      - |
+        # Python version gate (>= 3.11)
+        py_ver=$({{.PYTHON}} -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+        py_major=$(echo "$py_ver" | cut -d. -f1)
+        py_minor=$(echo "$py_ver" | cut -d. -f2)
+        if [ "$py_major" -ge 3 ] && [ "$py_minor" -ge 11 ]; then
+          echo "OK: Python $py_ver (>= 3.11)"
+        else
+          echo "FAIL: Python $py_ver — need >= 3.11"
+          exit 1
+        fi
+
+  preflight:auth:
+    desc: "Check AWS authentication and credentials"
+    cmds:
+      - |
+        if aws sts get-caller-identity &>/dev/null; then
+          ACCT=$(aws sts get-caller-identity --query Account --output text)
+          ARN=$(aws sts get-caller-identity --query Arn --output text)
+          echo "OK: Authenticated as ${ARN} (account ${ACCT})"
+        else
+          echo "FAIL: No valid AWS credentials. Run 'aws configure' or 'aws sso login'."
+          exit 1
+        fi
+      - |
+        echo "OK: AWS region is {{.REGION}}"
+
+  preflight:python:
+    desc: "Check Python packages required by scripts"
+    cmds:
+      - |
+        fail=0
+        declare -A pkg_imports=(
+          [pyyaml]=yaml
+          [requests]=requests
+          [pytest]=pytest
+          [beautifulsoup4]=bs4
+        )
+        for pkg in "${!pkg_imports[@]}"; do
+          mod="${pkg_imports[$pkg]}"
+          if {{.PYTHON}} -c "import $mod" 2>/dev/null || python3 -c "import $mod" 2>/dev/null; then
+            echo "OK: $pkg installed"
+          else
+            echo "MISSING: $pkg"
+            fail=1
+          fi
+        done
+        if {{.PYTHON}} -c "import boto3" 2>/dev/null || python3 -c "import boto3" 2>/dev/null; then
+          echo "OK: boto3 installed"
+        else
+          echo "MISSING: boto3"
+          fail=1
+        fi
+        if [ "$fail" -ne 0 ]; then
+          echo ""
+          echo "Install missing packages with:"
+          echo "  pip install boto3 pyyaml requests pytest beautifulsoup4"
+          exit 1
+        fi
+
+  preflight:files:
+    desc: "Check essential repository files are present"
+    cmds:
+      - |
+        fail=0
+        files=(
+          terraform/versions.tf
+          terraform/variables.tf
+          terraform/main.tf
+          terraform/outputs.tf
+          step-functions/rag_pipeline.asl.json
+          codebuild/buildspec.yml
+          codebuild/scripts/clone_repos.sh
+          codebuild/scripts/discover_modules.py
+          codebuild/scripts/process_docs.py
+          codebuild/scripts/requirements.txt
+          scripts/create_knowledge_base.py
+          scripts/test_retrieval.py
+          scripts/run_pipeline.sh
+          scripts/setup_claude_bedrock.sh
+          scripts/deploy.sh
+          scripts/bootstrap_state.sh
+        )
+        for f in "${files[@]}"; do
+          if [ -f "$f" ]; then
+            echo "OK: $f"
+          else
+            echo "MISSING: $f"
+            fail=1
+          fi
+        done
+        for sh_file in codebuild/scripts/clone_repos.sh scripts/run_pipeline.sh scripts/setup_claude_bedrock.sh scripts/deploy.sh scripts/bootstrap_state.sh; do
+          if [ -f "$sh_file" ] && [ ! -x "$sh_file" ]; then
+            echo "WARN: $sh_file is not executable — run 'chmod +x $sh_file'"
+          fi
+        done
+        if [ "$fail" -ne 0 ]; then
+          echo ""
+          echo "Repository is incomplete. Re-run the build stages for missing files."
+          exit 1
+        fi
+
+  preflight:terraform:
+    desc: "Check Terraform formatting and syntax"
+    cmds:
+      - |
+        if terraform -chdir={{.TF_DIR}} fmt -check -recursive 2>/dev/null; then
+          echo "OK: Terraform formatting"
+        else
+          echo "FAIL: Terraform files need formatting. Run 'task fmt'."
+          exit 1
+        fi
+      - |
+        if terraform -chdir={{.TF_DIR}} init -backend=false -input=false &>/dev/null && \
+           terraform -chdir={{.TF_DIR}} validate &>/dev/null; then
+          echo "OK: Terraform validates"
+        else
+          echo "FAIL: Terraform validation failed. Run 'terraform -chdir={{.TF_DIR}} validate'."
+          exit 1
+        fi
+
+  # ── Claude Code integration ────────────────────────────────────────────────
+
+  claude:setup:
+    desc: "Configure Claude Code to use Amazon Bedrock as its backend"
+    summary: |
+      Sets up environment variables so Claude Code routes requests through
+      Amazon Bedrock instead of the Anthropic API directly.
+
+      Sets four environment variables:
+        CLAUDE_CODE_USE_BEDROCK=1
+        ANTHROPIC_BEDROCK_REGION=<region>
+        AWS_REGION=<region>
+        ANTHROPIC_MODEL=<model>
+
+      After running this task, start Claude Code with 'claude' in the same
+      shell and it will use Bedrock automatically.
+
+      Optional vars:
+        CLAUDE_REGION  — Bedrock region (default: us-west-2)
+        CLAUDE_MODEL   — model ID (default: claude-sonnet-4-20250514)
+        PERSIST=true   — append exports to ~/.bashrc
+
+      Example:
+        task claude:setup
+        task claude:setup CLAUDE_REGION=us-east-1
+        task claude:setup PERSIST=true
+    vars:
+      CLAUDE_REGION: '{{.CLAUDE_REGION | default "us-west-2"}}'
+      CLAUDE_MODEL: '{{.CLAUDE_MODEL | default "claude-sonnet-4-20250514"}}'
+    cmds:
+      - |
+        source scripts/setup_claude_bedrock.sh \
+          --region {{.CLAUDE_REGION}} \
+          --model  {{.CLAUDE_MODEL}} \
+          {{if eq .PERSIST "true"}}--persist{{end}}
+
+  # ── MCP server ─────────────────────────────────────────────────────────────
+
+  mcp:install:
+    desc: "Install MCP server dependencies into .venv"
+    cmds:
+      - "{{.PYTHON}} -m pip install -r mcp/requirements.txt --quiet"
+      - echo "MCP dependencies installed."
+
+  mcp:setup:
+    desc: "Register the MCP server with Claude Code (.claude/settings.local.json)"
+    summary: |
+      Writes the hashicorp-rag mcpServers entry into .claude/settings.local.json
+      so that Claude Code starts the MCP server automatically.
+
+      The Knowledge Base ID must be provided explicitly (it is not a Terraform
+      output because it is managed outside Terraform by create_knowledge_base.py).
+
+      After running this task, restart Claude Code. The tools
+      search_hashicorp_docs and get_knowledge_base_info will be available.
+
+      Example:
+        task mcp:setup KB_ID=ABCDEFGHIJ
+    requires:
+      vars: [KB_ID]
+    cmds:
+      - |
+        scripts/setup_mcp.sh \
+          --region             {{.REGION}} \
+          --knowledge-base-id  {{.KB_ID}}
+
+  mcp:test:
+    desc: "Smoke-test the MCP server tools against the live Knowledge Base"
+    summary: |
+      Runs the MCP server tool functions directly to confirm that credentials,
+      environment variables, and retrieval are all working correctly.
+
+      Checks:
+        1. get_knowledge_base_info — verifies configuration
+        2. search_hashicorp_docs   — basic query
+        3. search_hashicorp_docs   — filtered query (product_family=vault)
+        4. search_hashicorp_docs   — no-results edge case
+
+      Example:
+        task mcp:test KB_ID=ABCDEFGHIJ
+    requires:
+      vars: [KB_ID]
+    env:
+      AWS_REGION: "{{.REGION}}"
+      AWS_KNOWLEDGE_BASE_ID: "{{.KB_ID}}"
+    cmds:
+      - "{{.PYTHON}} mcp/test_server.py"
+
+  # ── CI helpers ─────────────────────────────────────────────────────────────
+
+  ci:
+    desc: "Run all CI checks locally (fmt:check + validate + shellcheck + tests)"
+    cmds:
+      - task: fmt:check
+      - task: validate
+      - task: shellcheck
+      - task: test
+
+  shellcheck:
+    desc: "Run shellcheck on all shell scripts"
+    cmds:
+      - find scripts codebuild/scripts -name "*.sh" | xargs shellcheck
+
+  test:
+    desc: "Run Python unit tests"
+    cmds:
+      - "{{.PYTHON}} -m pytest codebuild/scripts/tests/ -v"
