@@ -68,3 +68,9 @@ variable "notification_email" {
   type        = string
   default     = ""
 }
+
+variable "create_github_oidc_provider" {
+  description = "Set to true to create the GitHub Actions OIDC provider and associated IAM role. Requires iam:CreateOpenIDConnectProvider. Set to false (default) to skip all GitHub Actions OIDC resources."
+  type        = bool
+  default     = false
+}

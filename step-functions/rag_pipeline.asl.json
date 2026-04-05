@@ -5,7 +5,7 @@
     "Init": {
       "Type": "Pass",
       "Parameters": {
-        "knowledge_base_id.$": "States.JsonMerge(States.StringToJson('{\"default\": \"\"}'), States.StringToJson(States.Format('{{\"value\": \"{}\"}}', States.JsonToString($.knowledge_base_id))), false).value",
+        "knowledge_base_id.$": "$.knowledge_base_id",
         "data_source_id.$": "$.data_source_id",
         "bucket_name.$": "$.bucket_name",
         "repo_url.$": "$.repo_url",

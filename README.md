@@ -62,7 +62,7 @@ Every document begins with a compact attribution prefix (~15 tokens vs ~100 toke
 ## Prerequisites
 
 - **AWS account** with billing enabled
-- **AWS CLI** installed and configured (`aws configure` or AWS SSO)
+- **AWS CLI** installed and credentials configured — environment variables (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`), `aws configure`, or AWS SSO
 - **Terraform** >= 1.5, < 2.0
 - **Python** 3.11+
 - **Task** ([taskfile.dev](https://taskfile.dev)) — `brew install go-task`
@@ -84,11 +84,18 @@ Every document begins with a compact attribution prefix (~15 tokens vs ~100 toke
 
 2. **Configure AWS credentials**
 
+   Choose any one method — the preflight check detects all of them:
+
    ```bash
-   # IAM keys
+   # Environment variables (preferred for CI and short-lived sessions)
+   export AWS_ACCESS_KEY_ID=AKIA...
+   export AWS_SECRET_ACCESS_KEY=...
+   export AWS_SESSION_TOKEN=...        # required when using temporary credentials
+
+   # Named profile (IAM long-term keys)
    aws configure
 
-   # or AWS SSO
+   # AWS SSO
    aws sso login --profile my-profile
    ```
 

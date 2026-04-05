@@ -98,6 +98,43 @@ tasks:
     cmds:
       - scripts/bootstrap_state.sh --region {{.REGION}}
 
+  # ── OIDC provider ──────────────────────────────────────────────────────────
+
+  oidc:import:
+    desc: "Import the GitHub Actions OIDC provider into Terraform state if it already exists in AWS"
+    summary: |
+      Checks whether the GitHub Actions OIDC provider already exists in the AWS
+      account. If it does and is not yet tracked in Terraform state, imports it
+      so that a subsequent 'terraform apply' does not attempt to create a
+      duplicate (which would fail with EntityAlreadyExists).
+
+      Safe to run on every deploy — exits cleanly if the provider is already in
+      state or does not yet exist.
+
+      Called automatically by 'task up'.
+
+      Example:
+        task oidc:import
+    deps: [init]
+    vars:
+      OIDC_ARN:
+        sh: 'aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn" --output text 2>/dev/null | tr "\t" "\n" | grep "token.actions.githubusercontent.com" || true'
+    cmds:
+      - |
+        OIDC_ARN="{{.OIDC_ARN}}"
+        if [ -z "$OIDC_ARN" ]; then
+          echo "OIDC: provider not found in AWS — will be created by terraform apply."
+          exit 0
+        fi
+        echo "OIDC: found existing provider $OIDC_ARN"
+        if terraform -chdir={{.TF_DIR}} state show aws_iam_openid_connect_provider.github &>/dev/null; then
+          echo "OIDC: already in Terraform state — nothing to do."
+        else
+          echo "OIDC: importing into Terraform state..."
+          terraform -chdir={{.TF_DIR}} import aws_iam_openid_connect_provider.github "$OIDC_ARN"
+          echo "OIDC: import complete."
+        fi
+
   # ── Terraform core ─────────────────────────────────────────────────────────
 
   fmt:
@@ -338,12 +375,29 @@ tasks:
     desc: "Check AWS authentication and credentials"
     cmds:
       - |
+        # Report credential source
+        if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+          echo "OK: AWS_ACCESS_KEY_ID is set (key ID: ${AWS_ACCESS_KEY_ID:0:4}****)"
+          if [ -n "$AWS_SESSION_TOKEN" ]; then
+            echo "OK: AWS_SESSION_TOKEN is set (temporary credentials)"
+          fi
+          cred_source="environment variables"
+        elif [ -f "$HOME/.aws/credentials" ] || [ -f "$HOME/.aws/config" ]; then
+          cred_source="~/.aws profile"
+        else
+          cred_source="unknown (instance profile / IRSA / ECS task role)"
+        fi
+        # Verify the credentials actually work
         if aws sts get-caller-identity &>/dev/null; then
           ACCT=$(aws sts get-caller-identity --query Account --output text)
           ARN=$(aws sts get-caller-identity --query Arn --output text)
-          echo "OK: Authenticated as ${ARN} (account ${ACCT})"
+          echo "OK: Authenticated as ${ARN} (account ${ACCT}) via ${cred_source}"
         else
-          echo "FAIL: No valid AWS credentials. Run 'aws configure' or 'aws sso login'."
+          echo "FAIL: No valid AWS credentials found."
+          echo "  Options:"
+          echo "    export AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=..."
+          echo "    aws configure"
+          echo "    aws sso login --profile my-profile"
           exit 1
         fi
       - |

@@ -64,7 +64,28 @@ EOF
   echo "Wrote ${TF_DIR}/terraform.tfvars"
 fi
 
+echo ""
+echo "==> Step 2a: Import OIDC provider if it already exists in AWS"
+OIDC_ARN=$(aws iam list-open-id-connect-providers \
+  --query "OpenIDConnectProviderList[].Arn" --output text 2>/dev/null \
+  | tr '\t' '\n' | grep "token.actions.githubusercontent.com" || true)
+if [[ -z "${OIDC_ARN}" ]]; then
+  echo "OIDC: provider not found in AWS — will be created by terraform apply."
+elif terraform -chdir="${TF_DIR}" state show 'aws_iam_openid_connect_provider.github[0]' &>/dev/null; then
+  echo "OIDC: already in Terraform state — nothing to do."
+else
+  echo "OIDC: importing existing provider ${OIDC_ARN} into Terraform state..."
+  terraform -chdir="${TF_DIR}" import 'aws_iam_openid_connect_provider.github[0]' "${OIDC_ARN}"
+  echo "OIDC: import complete."
+fi
+
 terraform -chdir="${TF_DIR}" apply -auto-approve -input=false
+
+echo ""
+echo "==> Step 2b: Wait for OpenSearch Serverless access policy propagation"
+echo "AOSS data access policy changes take ~60s to propagate — waiting..."
+sleep 60
+echo "Wait complete."
 
 echo ""
 echo "==> Step 3: Create Bedrock Knowledge Base"

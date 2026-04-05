@@ -25,6 +25,7 @@ import sys
 import time
 
 import boto3
+from botocore.exceptions import ClientError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -133,32 +134,49 @@ def create_or_get_knowledge_base(
                 return kb["knowledgeBaseId"]
 
     log.info("Creating Knowledge Base: %s", kb_name)
-    resp = bedrock_agent.create_knowledge_base(
-        name=kb_name,
-        roleArn=kb_role_arn,
-        knowledgeBaseConfiguration={
-            "type": "VECTOR",
-            "vectorKnowledgeBaseConfiguration": {
-                "embeddingModelArn": embedding_model_arn,
-                "embeddingModelConfiguration": {
-                    "bedrockEmbeddingModelConfiguration": {"dimensions": 1024}
+    # The vector index may take up to ~2 min to propagate after creation.
+    # Retry on ValidationException with "no such index" until it's visible.
+    for attempt in range(8):
+        try:
+            resp = bedrock_agent.create_knowledge_base(
+                name=kb_name,
+                roleArn=kb_role_arn,
+                knowledgeBaseConfiguration={
+                    "type": "VECTOR",
+                    "vectorKnowledgeBaseConfiguration": {
+                        "embeddingModelArn": embedding_model_arn,
+                        "embeddingModelConfiguration": {
+                            "bedrockEmbeddingModelConfiguration": {"dimensions": 1024}
+                        },
+                    },
                 },
-            },
-        },
-        storageConfiguration={
-            "type": "OPENSEARCH_SERVERLESS",
-            "opensearchServerlessConfiguration": {
-                "collectionArn": collection_arn,
-                "vectorIndexName": "bedrock-knowledge-base-default-index",
-                "fieldMapping": {
-                    "vectorField": "bedrock-knowledge-base-default-vector",
-                    "textField": "AMAZON_BEDROCK_TEXT_CHUNK",
-                    "metadataField": "AMAZON_BEDROCK_METADATA",
+                storageConfiguration={
+                    "type": "OPENSEARCH_SERVERLESS",
+                    "opensearchServerlessConfiguration": {
+                        "collectionArn": collection_arn,
+                        "vectorIndexName": "bedrock-knowledge-base-default-index",
+                        "fieldMapping": {
+                            "vectorField": "bedrock-knowledge-base-default-vector",
+                            "textField": "AMAZON_BEDROCK_TEXT_CHUNK",
+                            "metadataField": "AMAZON_BEDROCK_METADATA",
+                        },
+                    },
                 },
-            },
-        },
-    )
-    return resp["knowledgeBase"]["knowledgeBaseId"]
+            )
+            return resp["knowledgeBase"]["knowledgeBaseId"]
+        except ClientError as e:
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "no such index" in str(e)
+                and attempt < 7
+            ):
+                log.info(
+                    "Vector index not yet visible to Bedrock — retrying in 30s (%d/8)...",
+                    attempt + 1,
+                )
+                time.sleep(30)
+                continue
+            raise
 
 
 def create_or_get_data_source(

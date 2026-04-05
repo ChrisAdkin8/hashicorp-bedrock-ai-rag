@@ -4,6 +4,13 @@ locals {
   account_id          = data.aws_caller_identity.current.account_id
   rag_bucket_name     = "hashicorp-rag-docs-${substr(sha256(local.account_id), 0, 8)}"
   embedding_model_arn = var.embedding_model_arn != "" ? var.embedding_model_arn : "arn:aws:bedrock:${var.region}::foundation-model/amazon.titan-embed-text-v2:0"
+
+  # Convert STS assumed-role ARN → IAM role ARN so the deployer can create
+  # the vector index in OpenSearch Serverless via create_knowledge_base.py.
+  # arn:aws:sts::ACCT:assumed-role/ROLE/SESSION → arn:aws:iam::ACCT:role/ROLE
+  # IAM user/root ARNs are passed through unchanged (regex won't match).
+  _deployer_match   = try(regex("arn:aws:sts::([0-9]+):assumed-role/([^/]+)/", data.aws_caller_identity.current.arn), null)
+  deployer_role_arn = local._deployer_match != null ? "arn:aws:iam::${local._deployer_match[0]}:role/${local._deployer_match[1]}" : data.aws_caller_identity.current.arn
 }
 
 # ── S3 Bucket (RAG document staging) ──────────────────────────────────────────
@@ -115,7 +122,8 @@ resource "aws_opensearchserverless_access_policy" "data" {
         ]
       }
     ]
-    Principal = [aws_iam_role.bedrock_kb.arn]
+    # Include the deployer so create_knowledge_base.py can create the vector index.
+    Principal = [aws_iam_role.bedrock_kb.arn, local.deployer_role_arn]
   }])
 }
 
@@ -246,9 +254,15 @@ resource "aws_iam_role_policy" "step_functions" {
         Action = [
           "events:PutTargets",
           "events:PutRule",
-          "events:DescribeRule"
+          "events:DescribeRule",
+          "events:DeleteRule",
+          "events:RemoveTargets",
+          "events:CreateManagedRule",
+          "events:DeleteManagedRule"
         ]
-        Resource = ["arn:aws:events:${var.region}:${local.account_id}:rule/StepFunctionsGetEventsForCodeBuildRule"]
+        # Wildcard required: SFN validates managed-rule creation before the rule ARN is known,
+        # and the default event bus path format may differ across regions (rule/* vs rule/default/*).
+        Resource = ["*"]
       }
     ]
   })
@@ -287,18 +301,20 @@ resource "aws_iam_role_policy" "scheduler" {
 # ── IAM: GitHub Actions OIDC ──────────────────────────────────────────────────
 
 resource "aws_iam_openid_connect_provider" "github" {
+  count           = var.create_github_oidc_provider ? 1 : 0
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
 }
 
 resource "aws_iam_role" "github_actions" {
-  name = "github-actions-terraform"
+  count = var.create_github_oidc_provider ? 1 : 0
+  name  = "github-actions-terraform"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+      Principal = { Federated = aws_iam_openid_connect_provider.github[0].arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
@@ -313,8 +329,9 @@ resource "aws_iam_role" "github_actions" {
 }
 
 resource "aws_iam_role_policy" "github_actions" {
-  name = "github-actions-terraform-policy"
-  role = aws_iam_role.github_actions.id
+  count = var.create_github_oidc_provider ? 1 : 0
+  name  = "github-actions-terraform-policy"
+  role  = aws_iam_role.github_actions[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [

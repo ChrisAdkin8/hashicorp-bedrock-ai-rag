@@ -1,8 +1,12 @@
 version: 0.2
 
-env:
-  secrets-manager:
-    GITHUB_TOKEN: "github-token:token"
+# GITHUB_TOKEN is optional — scripts fall back to unauthenticated API (60 req/hr).
+# To raise the rate limit, create a Secrets Manager secret named "github-token"
+# with a key "token" and uncomment the block below:
+#
+# env:
+#   secrets-manager:
+#     GITHUB_TOKEN: "github-token:token"
 
 phases:
   install:
