@@ -1,4 +1,4 @@
-# HashiCorp Bedrock AI RAG — Implementation Reference (Kendra Architecture)
+# HashiCorp Kendra RAG Pipeline — Implementation Reference
 
 This document is an AI agent / LLM prompt reference. It describes the **current** production implementation: a Kendra-based RAG pipeline that ingests HashiCorp documentation into **Amazon Kendra** for use as a grounding source in AI coding assistants powered by **Amazon Bedrock** (Claude). Kendra provides NLP-powered retrieval — no embedding model, vector database, or chunking configuration is required.
 
@@ -68,7 +68,7 @@ Step Functions (8 states):
 .
 ├── Taskfile.yml
 ├── AGENTS.md
-├── PROMPT_BEDROCK_AI.md          # This file — implementation reference
+├── PROMPT.md                     # This file — implementation reference
 ├── README.md
 ├── .gitignore
 ├── .github/workflows/terraform.yml

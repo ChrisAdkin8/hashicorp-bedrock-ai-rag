@@ -84,7 +84,7 @@
 
 ---
 
-## Key spec decisions (from PROMPT_BEDROCK_AI.md)
+## Key spec decisions (from PROMPT.md)
 
 - Backend: S3 + DynamoDB lock table (not GCS)
 - Orchestration: Step Functions ASL JSON (not Cloud Workflows YAML)
