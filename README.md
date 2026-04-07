@@ -35,6 +35,22 @@ The CodeBuild job runs two parallel tracks:
 
 Both tracks converge at a single `aws s3 sync` upload, after which Step Functions triggers a Kendra data source sync job to index all new and changed documents.
 
+The pipeline supports targeted runs via the `TARGET` parameter, allowing individual content sources to be refreshed without re-ingesting everything:
+
+| Target | What runs |
+|---|---|
+| `all` (default) | Full pipeline — docs, registry modules, discuss, blogs, GitHub issues |
+| `docs` | Product documentation from HashiCorp repos only |
+| `registry` | Terraform public registry modules only |
+| `discuss` | HashiCorp Discuss threads only |
+| `blogs` | HashiCorp blog posts only |
+
+```bash
+task pipeline:run TARGET=blogs     # refresh blogs only
+task pipeline:run TARGET=discuss   # refresh Discuss threads only
+task pipeline:run                  # full run (default)
+```
+
 > **CDKTF excluded** — CDKTF (CDK for Terraform) documentation is intentionally excluded from the index. Path-based exclusion in `process_docs.py` drops any file under a `cdktf/` or `terraform-cdk/` directory, and title/keyword filters in the blog, discuss, and issues fetch scripts skip CDKTF-primary content.
 
 ---

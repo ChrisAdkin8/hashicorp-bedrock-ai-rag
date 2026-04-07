@@ -53,17 +53,20 @@ EventBridge Scheduler
     │  weekly cron (cron(0 2 ? * SUN *))
     ▼
 Step Functions: Init
-    │  inject validation queries + params (index ID, data source ID, bucket, repo URL)
+    │  inject params: index ID, data source ID, bucket, repo URL, pipeline_target
     ▼
 Step Functions: StartBuild
     │  codebuild:startBuild.sync — waits for CodeBuild to complete
+    │  passes PIPELINE_TARGET env var (all | docs | registry | discuss | blogs)
     ▼
-CodeBuild
-    ├── pre_build:  clone_repos.sh        — shallow-clone HashiCorp + provider repos
-    │               discover_modules.py   — discover Terraform Registry modules
-    │               clone_modules.sh      — clone discovered module repos
-    ├── build:      process_docs.py       — semantic section splitting + attribution prefixes
-    │               fetch_github_issues.py & fetch_discuss.py & fetch_blogs.py  (parallel)
+CodeBuild  [steps marked * are conditional on PIPELINE_TARGET]
+    ├── pre_build:  clone_repos.sh        — [*all, docs]     shallow-clone HashiCorp + provider repos
+    │               discover_modules.py   — [*all, registry] discover Terraform Registry modules
+    │               clone_modules.sh      — [*all, registry] clone discovered module repos
+    ├── build:      process_docs.py       — [*all, docs, registry] semantic splitting + attribution prefixes
+    │               fetch_github_issues.py— [*all only]      (parallel)
+    │               fetch_discuss.py      — [*all, discuss]  (parallel)
+    │               fetch_blogs.py        — [*all, blogs]    (parallel)
     │               deduplicate.py        — cross-source deduplication
     │               generate_metadata.py  — write Kendra .metadata.json sidecars
     └── post_build: aws s3 sync → S3 RAG bucket (--delete keeps bucket current)

@@ -23,10 +23,20 @@ Replace `REGION` with your deployment region (default: `us-east-1`).
 ### Trigger a pipeline run manually
 
 ```bash
+# Full run (all content sources)
 task pipeline:run
-# or with explicit IDs if terraform output is unavailable:
+
+# With explicit IDs if terraform output is unavailable
 task pipeline:run KENDRA_INDEX_ID=<INDEX_ID> KENDRA_DS_ID=<DATA_SOURCE_ID>
+
+# Targeted run — refresh a single content source
+task pipeline:run TARGET=blogs      # HashiCorp blog posts only
+task pipeline:run TARGET=discuss    # HashiCorp Discuss threads only
+task pipeline:run TARGET=docs       # product repo documentation only
+task pipeline:run TARGET=registry   # Terraform public registry modules only
 ```
+
+Valid `TARGET` values: `all` (default), `docs`, `registry`, `discuss`, `blogs`.
 
 ### Check pipeline status
 
