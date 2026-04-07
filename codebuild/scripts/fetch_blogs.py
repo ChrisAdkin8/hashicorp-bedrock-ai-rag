@@ -110,7 +110,13 @@ def _parse_feed(feed_url: str) -> list[dict]:
         title_tag = entry.find("title")
         title = title_tag.get_text().strip() if title_tag else "Untitled"
 
-        results.append({"title": title, "url": url, "pub_date": pub_date})
+        # Extract inline content from the feed to avoid scraping article URLs.
+        # Atom feeds use <content>, RSS feeds use <content:encoded> (parsed as
+        # <encoded> by BeautifulSoup's xml parser).
+        content_tag = entry.find("content") or entry.find("encoded")
+        inline_content = content_tag.get_text().strip() if content_tag else ""
+
+        results.append({"title": title, "url": url, "pub_date": pub_date, "content": inline_content})
 
     log.info("Feed %s: %d entries in lookback window", feed_url, len(results))
     return results
@@ -193,9 +199,13 @@ def process_feed(feed_info: dict) -> int:
     for entry in entries:
         if not entry.get("url"):
             continue
-        body = fetch_article_content(entry["url"])
+        # Prefer inline feed content (avoids bot-protection on article URLs).
+        body = entry.get("content", "")
+        if body:
+            # Feed content is HTML — strip tags to plain text.
+            body = BeautifulSoup(body, "html.parser").get_text(separator="\n").strip()
         if not body:
-            body = entry.get("summary", "")
+            body = fetch_article_content(entry["url"])
         if not body:
             continue
 
@@ -211,7 +221,6 @@ def process_feed(feed_info: dict) -> int:
         fname = f"{slug}.md"
         (out_dir / fname).write_text(content, encoding="utf-8")
         written += 1
-        time.sleep(0.5)  # Polite crawling delay
 
     log.info("Feed %s: wrote %d files", source, written)
     return written
