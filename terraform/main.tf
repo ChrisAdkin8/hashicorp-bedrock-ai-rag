@@ -111,7 +111,7 @@ resource "aws_kendra_data_source" "s3" {
       # produces "invalid metadata" errors. An inclusion pattern for *.md
       # achieves the same goal (sidecars are never indexed as documents) while
       # leaving Kendra free to read them as metadata for their parent documents.
-      inclusion_patterns = ["*.md"]
+      inclusion_patterns = ["**/*.md"]
     }
   }
 }

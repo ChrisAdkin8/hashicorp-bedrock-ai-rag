@@ -76,7 +76,7 @@ Step Functions: WaitForSync (60s wait) → ListSyncJobs → CheckSyncStatus (pol
     ▼
 Amazon Kendra
     │  NLP-powered index — keyword extraction, entity recognition, semantic ranking
-    └─ Custom metadata attributes: product, product_family, source_type, _source_uri
+    └─ Custom metadata attributes: product, product_family, source_type
     ▼
 Step Functions: ValidateRetrieval
     │  Map state — 10 sequential kendra:query calls covering all product families
@@ -98,6 +98,16 @@ Each service has a dedicated least-privilege execution role:
 | `github-actions-terraform` | GitHub Actions OIDC | Terraform state read/write, infra describe |
 
 ## Document Processing
+
+### Blog content fetching
+
+`fetch_blogs.py` reads content directly from the RSS/Atom feed rather than scraping individual article URLs. hashicorp.com is behind Cloudflare bot protection — a plain HTTP GET to an article URL returns "We're verifying your browser" (~65 bytes) instead of article content.
+
+Both feeds contain full article HTML inline:
+- `https://www.hashicorp.com/blog/feed.xml` — Atom format, `<content>` tag per entry
+- `https://medium.com/feed/hashicorp-engineering` — RSS format, `<content:encoded>` tag per item
+
+`_parse_feed()` extracts the inline content tag and stores it in the entry dict. `process_feed()` HTML-strips it with BeautifulSoup before writing the output file. URL scraping (`fetch_article_content()`) is retained as a fallback for feeds that do not include inline content.
 
 ### Content exclusions
 
@@ -126,6 +136,8 @@ Every document has a `.metadata.json` sidecar file written by `generate_metadata
 
 ```json
 {
+  "Title": "Vault — Auth Methods",
+  "ContentType": "PLAIN_TEXT",
   "Attributes": {
     "product":        "vault",
     "product_family": "vault",
@@ -133,6 +145,10 @@ Every document has a `.metadata.json` sidecar file written by `generate_metadata
   }
 }
 ```
+
+`DocumentId` and `_source_uri` are intentionally omitted:
+- `DocumentId` — Kendra auto-assigns from the S3 object key. Providing a full `s3://` URI causes metadata validation failures.
+- `_source_uri` — Kendra requires an HTTP/HTTPS URL; only S3 URIs are available at ingestion time.
 
 These attributes are indexed by Kendra and available as filters in the `search_hashicorp_docs` MCP tool (`product_family`, `source_type`).
 

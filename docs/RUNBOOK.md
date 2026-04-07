@@ -91,6 +91,14 @@ The Developer Edition is capped at 10,000 documents. Switch to Enterprise Editio
 2. Run `terraform -chdir=terraform apply -auto-approve` — Terraform will destroy and recreate the Kendra index (10–30 minutes).
 3. Re-run `task pipeline:run` to re-sync all documents into the new index.
 
+### Zero blog files in S3
+
+1. Check CloudWatch Logs for `fetch_blogs.py complete — 0 files written`.
+2. `fetch_blogs.py` reads content from RSS/Atom feed inline tags — it does **not** scrape article URLs. hashicorp.com is Cloudflare-protected and cannot be scraped directly.
+3. If the feed URLs themselves are failing: check `https://www.hashicorp.com/blog/feed.xml` and `https://medium.com/feed/hashicorp-engineering` return HTTP 200. Both are public and unauthenticated.
+4. If `lxml` is missing (rare): verify `lxml>=5.0` is in `codebuild/scripts/requirements.txt` — BeautifulSoup's `"xml"` parser requires it. A missing `lxml` causes a `FeatureNotFound` exception logged at ERROR level.
+5. CDKTF filtering threshold: posts with ≥3 CDKTF mentions in the body are skipped. If a legitimate post is being dropped, lower the threshold in `fetch_blogs.py`.
+
 ### EventBridge Scheduler not triggering
 
 1. Check the scheduler: `aws scheduler get-schedule --name rag-weekly-refresh`.

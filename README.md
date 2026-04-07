@@ -58,7 +58,7 @@ The pipeline ingests content from seven source types across three collection met
 |---|---|---|
 | **GitHub Issues** | `issue` | Issues from the last 365 days across 8 priority repos. Filtered: PRs excluded, minimum body length, minimum comment count, label denylist. |
 | **HashiCorp Discuss** | `discuss` | Forum threads with at least 1 reply from the last 365 days across 9 product categories. Accepted answers reordered to front. |
-| **HashiCorp Blog** | `blog` | Posts from the last 365 days from hashicorp.com/blog and medium.com/hashicorp-engineering. Full content extracted via BeautifulSoup. |
+| **HashiCorp Blog** | `blog` | Posts from the last 365 days from hashicorp.com/blog and medium.com/hashicorp-engineering. Content read from inline feed tags (`<content>` / `<content:encoded>`) — article URLs are Cloudflare-protected and cannot be scraped. |
 
 ### Document metadata
 
