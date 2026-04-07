@@ -255,6 +255,8 @@ The `rag-pipeline-step-functions` role requires:
 
 ### `buildspec.yml` Phases
 
+`PIPELINE_TARGET` is passed as an environment variable by Step Functions. Each phase gates its steps on this value so only the relevant content sources are processed. Valid values: `all` (default), `docs`, `registry`, `discuss`, `blogs`.
+
 **install**
 ```yaml
 install:
@@ -264,23 +266,48 @@ install:
     - pip install -r codebuild/scripts/requirements.txt
 ```
 
-**pre_build** — repository cloning:
+**pre_build** — conditional repository cloning:
 ```yaml
 pre_build:
   commands:
-    - bash codebuild/scripts/clone_repos.sh
-    - python codebuild/scripts/discover_modules.py
-    - bash codebuild/scripts/clone_modules.sh
+    - export TARGET="${PIPELINE_TARGET:-all}"
+    - echo "Pipeline target: ${TARGET}"
+    - |
+      if [[ "$TARGET" == "all" || "$TARGET" == "docs" ]]; then
+        bash codebuild/scripts/clone_repos.sh
+      fi
+    - |
+      if [[ "$TARGET" == "all" || "$TARGET" == "registry" ]]; then
+        python3 codebuild/scripts/discover_modules.py
+        bash codebuild/scripts/clone_modules.sh
+      fi
 ```
 
-**build** — document processing:
+Note: use `export TARGET=` (not bare `TARGET=`) to avoid CodeBuild's YAML parser misinterpreting `${VAR:-default}` syntax as a mapping key.
+
+**build** — conditional document processing (parallel fetch):
 ```yaml
 build:
   commands:
-    - python codebuild/scripts/process_docs.py
-    - python codebuild/scripts/fetch_github_issues.py & python codebuild/scripts/fetch_discuss.py & python codebuild/scripts/fetch_blogs.py & wait
-    - python codebuild/scripts/deduplicate.py
-    - python codebuild/scripts/generate_metadata.py --bucket ${RAG_BUCKET}
+    - export TARGET="${PIPELINE_TARGET:-all}"
+    - |
+      if [[ "$TARGET" == "all" || "$TARGET" == "docs" || "$TARGET" == "registry" ]]; then
+        python3 codebuild/scripts/process_docs.py
+      fi
+    - |
+      PIDS=()
+      if [[ "$TARGET" == "all" ]]; then
+        python3 codebuild/scripts/fetch_github_issues.py & PIDS+=($!)
+      fi
+      if [[ "$TARGET" == "all" || "$TARGET" == "discuss" ]]; then
+        python3 codebuild/scripts/fetch_discuss.py & PIDS+=($!)
+      fi
+      if [[ "$TARGET" == "all" || "$TARGET" == "blogs" ]]; then
+        python3 codebuild/scripts/fetch_blogs.py & PIDS+=($!)
+      fi
+      [[ ${#PIDS[@]} -gt 0 ]] && wait "${PIDS[@]}" || true
+    - python3 codebuild/scripts/deduplicate.py
+    - python3 codebuild/scripts/generate_metadata.py --bucket "${RAG_BUCKET}"
 ```
 
 **post_build** — S3 sync:

@@ -20,6 +20,7 @@ vars:
     sh: 'aws sts get-caller-identity --query Account --output text 2>/dev/null || echo ""'
   STATE_BUCKET:
     sh: 'echo "{{.ACCOUNT_ID}}-tf-state-$(echo -n "{{.ACCOUNT_ID}}" | sha256sum | cut -c1-8)"'
+
 tasks:
 
   default:
@@ -118,17 +119,16 @@ tasks:
         sh: 'aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn" --output text 2>/dev/null | tr "\t" "\n" | grep "token.actions.githubusercontent.com" || true'
     cmds:
       - |
-        OIDC_ARN="{{.OIDC_ARN}}"
-        if [ -z "$OIDC_ARN" ]; then
+        if [ -z "{{.OIDC_ARN}}" ]; then
           echo "OIDC: provider not found in AWS — will be created by terraform apply."
           exit 0
         fi
-        echo "OIDC: found existing provider $OIDC_ARN"
+        echo "OIDC: found existing provider {{.OIDC_ARN}}"
         if terraform -chdir={{.TF_DIR}} state show aws_iam_openid_connect_provider.github &>/dev/null; then
           echo "OIDC: already in Terraform state — nothing to do."
         else
           echo "OIDC: importing into Terraform state..."
-          terraform -chdir={{.TF_DIR}} import aws_iam_openid_connect_provider.github "$OIDC_ARN"
+          terraform -chdir={{.TF_DIR}} import aws_iam_openid_connect_provider.github "{{.OIDC_ARN}}"
           echo "OIDC: import complete."
         fi
 
@@ -388,6 +388,7 @@ tasks:
           ACCT=$(aws sts get-caller-identity --query Account --output text)
           ARN=$(aws sts get-caller-identity --query Arn --output text)
           echo "OK: Authenticated as ${ARN} (account ${ACCT}) via ${cred_source}"
+          echo "OK: AWS region is {{.REGION}}"
         else
           echo "FAIL: No valid AWS credentials found."
           echo "  Options:"
@@ -396,8 +397,6 @@ tasks:
           echo "    aws sso login --profile my-profile"
           exit 1
         fi
-      - |
-        echo "OK: AWS region is {{.REGION}}"
 
   preflight:python:
     desc: "Check Python packages required by scripts"
@@ -461,10 +460,8 @@ tasks:
             echo "MISSING: $f"
             fail=1
           fi
-        done
-        for sh_file in codebuild/scripts/clone_repos.sh scripts/run_pipeline.sh scripts/setup_claude_bedrock.sh scripts/deploy.sh scripts/bootstrap_state.sh; do
-          if [ -f "$sh_file" ] && [ ! -x "$sh_file" ]; then
-            echo "WARN: $sh_file is not executable — run 'chmod +x $sh_file'"
+          if [[ "$f" == *.sh ]] && [ -f "$f" ] && [ ! -x "$f" ]; then
+            echo "WARN: $f is not executable — run 'chmod +x $f'"
           fi
         done
         if [ "$fail" -ne 0 ]; then
