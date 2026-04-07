@@ -24,8 +24,8 @@ phases:
 
   pre_build:
     commands:
-      - export TARGET="${PIPELINE_TARGET:-all}"
-      - echo "Pipeline target: ${TARGET}"
+      - 'export TARGET="${PIPELINE_TARGET:-all}"'
+      - 'echo "Pipeline target: ${TARGET}"'
       - |
         # Clone product repos for docs and full runs
         if [[ "$TARGET" == "all" || "$TARGET" == "docs" ]]; then
@@ -42,7 +42,7 @@ phases:
 
   build:
     commands:
-      - export TARGET="${PIPELINE_TARGET:-all}"
+      - 'export TARGET="${PIPELINE_TARGET:-all}"'
       - |
         if [[ "$TARGET" == "all" || "$TARGET" == "docs" || "$TARGET" == "registry" ]]; then
           echo "Processing documentation (semantic section splitting)..."
