@@ -105,8 +105,13 @@ resource "aws_kendra_data_source" "s3" {
   configuration {
     s3_configuration {
       bucket_name = aws_s3_bucket.rag_docs.id
-      # Correctly prevents metadata JSONs from being indexed as standalone docs
-      exclusion_patterns = ["*.metadata.json"]
+      # Inclusion pattern: only .md files are indexed as documents.
+      # Using exclusion_patterns = ["*.metadata.json"] would cause Kendra to
+      # ignore those files entirely — including as attribute sidecars — which
+      # produces "invalid metadata" errors. An inclusion pattern for *.md
+      # achieves the same goal (sidecars are never indexed as documents) while
+      # leaving Kendra free to read them as metadata for their parent documents.
+      inclusion_patterns = ["*.md"]
     }
   }
 }

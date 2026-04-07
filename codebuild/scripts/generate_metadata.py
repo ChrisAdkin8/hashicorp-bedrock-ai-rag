@@ -30,7 +30,7 @@ PRODUCT_FAMILY_OVERRIDES: dict[str, str] = {
     "sentinel": "terraform",
 }
 
-def _infer_metadata(path: Path, bucket: str) -> dict:
+def _infer_metadata(path: Path) -> dict:
     """Infer metadata fields with corrected schema for Kendra."""
     rel = path.relative_to(INPUT_DIR)
     parts = rel.parts
@@ -52,18 +52,13 @@ def _infer_metadata(path: Path, bucket: str) -> dict:
 
     product_family = PRODUCT_FAMILY_OVERRIDES.get(source_type, product)
 
-    # Use forward slashes for S3 URI regardless of OS
-    s3_key = "/".join(rel.parts)
-    
-    # FIX: Define the s3_uri variable before the return statement
-    s3_uri = f"s3://{bucket}/{s3_key}"
     title = path.stem.replace("_", " ").title()
 
-    # _source_uri is intentionally omitted: Kendra requires it to be an
-    # HTTP/HTTPS URL, but we only have s3:// URIs at this stage. When absent,
-    # Kendra's search results link directly to the S3 object instead.
+    # DocumentId is intentionally omitted: Kendra expects the S3 key (not a
+    # full s3:// URI) when set via metadata sidecar, but omitting it entirely
+    # is safer — Kendra auto-assigns the DocumentId from the S3 object key.
+    # _source_uri is also omitted: Kendra requires HTTP/HTTPS, not s3:// URIs.
     return {
-        "DocumentId": s3_uri,
         "Title": title,
         "ContentType": "PLAIN_TEXT",
         "Attributes": {
@@ -99,7 +94,7 @@ def main() -> None:
 
     for path in md_files:
         try:
-            metadata = _infer_metadata(path, bucket)
+            metadata = _infer_metadata(path)
             write_sidecar(path, metadata)
             written += 1
         except Exception as e:
