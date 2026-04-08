@@ -108,7 +108,7 @@ def merge_into_neptune(nodes, edges, endpoint, port, region, iam_auth, repo_uri)
     url = f"https://{endpoint}:{port}/openCypher"
 
     if iam_auth:
-        creds = boto3.Session().get_credentials().resolve()
+        creds = boto3.Session().get_credentials().get_frozen_credentials()
         auth = AWS4Auth(
             creds.access_key,
             creds.secret_key,
