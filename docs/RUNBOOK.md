@@ -190,8 +190,9 @@ curl -X POST \
    - **Terraform init/plan failed** — verify the workspace repo is accessible and the CodeBuild IAM role has permissions to read the repo (or that `GITHUB_TOKEN` is set if private).
    - **rover not found** — check `codebuild/buildspec_graph.yml` installs rover from the expected URL.
    - **Neptune connection refused** — verify CodeBuild's security group has port 8182 egress to the Neptune security group. Check the VPC config on the CodeBuild project.
-   - **IAM auth failure on Neptune** — confirm `neptune_iam_auth_enabled = true` and the CodeBuild role has `neptune-db:connect` on the cluster resource ARN.
-   - **`ingest_graph.py` error** — check the rover JSON output format hasn't changed (rover `nodes[]` / `edges[]` schema).
+   - **IAM auth failure on Neptune** — confirm `neptune_iam_auth_enabled = true` and the CodeBuild role has `neptune-db:connect` and `neptune-db:*` data operation actions on the cluster resource ARN.
+   - **SigV4 signature mismatch (403 "signature we calculated does not match")** — the `ingest_graph.py` script must send Neptune openCypher requests using form-encoded `data=` with `parameters` as a JSON string, **not** `json=` body. The `requests-aws4auth` library computes different payload hashes for JSON vs form-encoded bodies, causing Neptune to reject the signature. Fix: use `data={"query": ..., "parameters": json.dumps(...)}` in the `requests.post()` call.
+   - **`ingest_graph.py` "No resource nodes found"** — `terraform graph` produced a DOT file with no nodes matching the resource filter. Check that the cloned repo has `.tf` files with real resources (not just module calls with `count = 0`).
 
 ### Neptune cluster unavailable
 

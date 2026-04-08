@@ -136,7 +136,11 @@ def merge_into_neptune(nodes, edges, endpoint, port, region, iam_auth, repo_uri)
     repo_name = repo_uri.rstrip("/").split("/")[-1].removesuffix(".git")
 
     def run(query, params):
-        resp = session.post(url, auth=auth, json={"query": query, "parameters": params}, timeout=30)
+        resp = session.post(
+            url, auth=auth,
+            data={"query": query, "parameters": json.dumps(params)},
+            timeout=30,
+        )
         if not resp.ok:
             print(f"Neptune {resp.status_code} error: {resp.text[:500]}", file=sys.stderr)
         resp.raise_for_status()
