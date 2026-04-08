@@ -2,7 +2,7 @@
 
 resource "aws_security_group" "neptune" {
   name        = "${var.cluster_identifier}-sg"
-  description = "Neptune cluster access — port 8182"
+  description = "Neptune cluster access on port 8182"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -33,7 +33,7 @@ resource "aws_neptune_subnet_group" "main" {
 
 resource "aws_neptune_cluster_parameter_group" "main" {
   name        = "${var.cluster_identifier}-params"
-  family      = "neptune1.3"
+  family      = "neptune1.4"
   description = "Parameter group for ${var.cluster_identifier}"
 
   parameter {

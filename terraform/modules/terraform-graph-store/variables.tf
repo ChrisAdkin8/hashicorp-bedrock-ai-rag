@@ -117,6 +117,18 @@ variable "scheduler_timezone" {
   default     = "Europe/London"
 }
 
+variable "create_nat_gateway" {
+  description = "Create an EIP, NAT gateway, and private subnet so VPC-attached CodeBuild can reach the internet (required when subnets have no NAT route)."
+  type        = bool
+  default     = false
+}
+
+variable "codebuild_private_subnet_cidr" {
+  description = "CIDR block for the private CodeBuild subnet created when create_nat_gateway = true. Must not overlap existing subnets."
+  type        = string
+  default     = "172.31.64.0/24"
+}
+
 variable "codebuild_compute_type" {
   description = "CodeBuild compute type for the graph pipeline."
   type        = string

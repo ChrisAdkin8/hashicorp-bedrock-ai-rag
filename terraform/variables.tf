@@ -121,6 +121,18 @@ variable "neptune_backup_retention_days" {
   default     = 7
 }
 
+variable "neptune_create_nat_gateway" {
+  description = "Create a NAT gateway so VPC-attached CodeBuild can reach the internet. Required when subnets have no existing NAT route (e.g. default VPC public subnets)."
+  type        = bool
+  default     = false
+}
+
+variable "neptune_codebuild_private_subnet_cidr" {
+  description = "CIDR for the private CodeBuild subnet created when neptune_create_nat_gateway = true."
+  type        = string
+  default     = "172.31.64.0/24"
+}
+
 variable "graph_repo_uris" {
   description = "List of GitHub HTTPS URLs of Terraform workspace repositories to plan and ingest into Neptune."
   type        = list(string)

@@ -53,10 +53,10 @@ resource "aws_kendra_data_source" "s3" {
   configuration {
     s3_configuration {
       bucket_name = aws_s3_bucket.rag_docs.id
-      # Inclusion pattern indexes only .md files as documents.
-      # Exclusion patterns would prevent Kendra reading metadata sidecars entirely,
-      # causing "invalid metadata" errors. Inclusion avoids that.
-      inclusion_patterns = ["**/*.md"]
+      # Use inclusion_patterns (not exclusion_patterns) so that .metadata.json
+      # sidecar files are not excluded from Kendra's metadata resolution pass.
+      # Excluding them causes "invalid metadata" errors at sync time.
+      inclusion_patterns = ["*.md"]
     }
   }
 }

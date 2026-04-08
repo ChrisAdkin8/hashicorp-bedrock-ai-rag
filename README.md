@@ -156,8 +156,14 @@ The graph pipeline runs `terraform plan -out=tfplan` in each workspace repo, ext
 
 6. *(Optional)* **Populate the graph database**
 
+   Enable Neptune first by adding `create_neptune = true` and VPC variables to `terraform/terraform.tfvars`, then re-run `task apply`. Once the cluster is up:
+
    ```bash
-   task graph:populate GRAPH_REPO_URIS='["https://github.com/org/infra-repo"]'
+   task graph:populate GRAPH_REPO_URIS="https://github.com/org/infra-repo"
+   # Multiple repos (space-separated):
+   task graph:populate GRAPH_REPO_URIS="https://github.com/org/infra-repo https://github.com/org/app-repo"
+   # Or set graph_repo_uris in terraform.tfvars and omit the override:
+   task graph:populate
    ```
 
 ---
@@ -190,7 +196,7 @@ The graph pipeline runs `terraform plan -out=tfplan` in each workspace repo, ext
 | `neptune_instance_class` | `db.r6g.large` | Neptune instance class |
 | `neptune_instance_count` | `1` | Number of Neptune instances (1 = writer only) |
 | `neptune_iam_auth_enabled` | `true` | Enable IAM authentication for Neptune |
-| `neptune_deletion_protection` | `false` | Prevent cluster deletion via Terraform |
+| `neptune_deletion_protection` | `true` | Prevent cluster deletion via Terraform |
 | `neptune_backup_retention_days` | `7` | Automated backup retention (days) |
 | `graph_repo_uris` | `[]` | GitHub HTTPS URLs of Terraform workspace repos to ingest into Neptune |
 | `graph_refresh_schedule` | `cron(0 3 ? * SUN *)` | EventBridge cron for the graph pipeline (UTC) |
@@ -273,11 +279,12 @@ print(response["output"]["message"]["content"][0]["text"])
 | Task | Description |
 |---|---|
 | `task up` | Full deploy: preflight → bootstrap → terraform apply → first pipeline run |
-| `task down` | Destroy all Terraform-managed infrastructure |
+| `task down` | Alias for `task destroy` |
+| `task destroy` | Destroy all Terraform-managed infrastructure |
 | `task login` | Verify AWS credentials |
 | `task bootstrap` | Create/verify remote state S3 bucket |
-| `task plan` | `terraform plan` |
-| `task apply` | `terraform apply -auto-approve` |
+| `task plan` | `terraform plan` (saves plan to `tfplan`) |
+| `task apply` | Interactive `terraform apply` (plan + confirm) |
 | `task pipeline:run` | Trigger a docs pipeline run and wait for completion |
 | `task pipeline:test` | Run retrieval validation queries against Kendra |
 | `task pipeline:status` | List last 5 docs pipeline executions |
@@ -312,7 +319,7 @@ print(response["output"]["message"]["content"][0]["text"])
 
 See [docs/RUNBOOK.md](docs/RUNBOOK.md) for the full operational runbook.
 
-Quick links (replace `REGION` with your deployment region, default `us-east-1`):
+Quick links (replace `REGION` with your deployment region — auto-detected from `terraform/terraform.tfvars`):
 
 - Step Functions: `https://console.aws.amazon.com/states/home?region=REGION`
 - CodeBuild: `https://console.aws.amazon.com/codesuite/codebuild/projects?region=REGION`

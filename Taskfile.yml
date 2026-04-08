@@ -12,7 +12,11 @@ version: "3"
 vars:
   TF_DIR: terraform
   PYTHON: .venv/bin/python3
-  REGION: '{{.REGION | default "us-east-1"}}'
+  # REGION — auto-detected from terraform/terraform.tfvars; override via CLI:
+  #   task <target> REGION=eu-west-1
+  _REGION_FROM_TFVARS:
+    sh: 'grep -m1 "^region" terraform/terraform.tfvars 2>/dev/null | awk -F"\"" "{print \$2}" || echo ""'
+  REGION: '{{.REGION | default ._REGION_FROM_TFVARS | default "us-east-1"}}'
   ACCOUNT_ID:
     sh: 'aws sts get-caller-identity --query Account --output text 2>/dev/null || echo ""'
   STATE_BUCKET:
@@ -39,7 +43,7 @@ tasks:
         task login
     cmds:
       - aws sts get-caller-identity
-      - echo "Region: {{.REGION}}"
+      - 'echo "Region: {{.REGION}}"'
 
   # ── Primary entrypoint ──────────────────────────────────────────────────────
 
@@ -90,7 +94,7 @@ tasks:
     cmds:
       - terraform -chdir={{.TF_DIR}}/bootstrap init -input=false
       - terraform -chdir={{.TF_DIR}}/bootstrap apply -auto-approve -var="region={{.REGION}}"
-      - echo "State bucket: $(terraform -chdir={{.TF_DIR}}/bootstrap output -raw bucket_name)"
+      - 'echo "State bucket: $(terraform -chdir={{.TF_DIR}}/bootstrap output -raw bucket_name)"'
 
   # ── OIDC provider ───────────────────────────────────────────────────────────
 
@@ -139,11 +143,17 @@ tasks:
     desc: "Initialise Terraform with remote S3 backend"
     env:
       AWS_DEFAULT_REGION: '{{.REGION}}'
+    vars:
+      STATE_BUCKET_REGION:
+        sh: |
+          r=$(aws s3api get-bucket-location --bucket {{.STATE_BUCKET}} --query LocationConstraint --output text 2>/dev/null || echo "{{.REGION}}")
+          if [ "$r" = "None" ] || [ -z "$r" ]; then r="us-east-1"; fi
+          echo "$r"
     cmds:
       - |
         terraform -chdir={{.TF_DIR}} init \
           -backend-config="bucket={{.STATE_BUCKET}}" \
-          -backend-config="region={{.REGION}}" \
+          -backend-config="region={{.STATE_BUCKET_REGION}}" \
           -reconfigure \
           -input=false
 
@@ -151,11 +161,17 @@ tasks:
     desc: "Re-initialise Terraform and upgrade providers"
     env:
       AWS_DEFAULT_REGION: '{{.REGION}}'
+    vars:
+      STATE_BUCKET_REGION:
+        sh: |
+          r=$(aws s3api get-bucket-location --bucket {{.STATE_BUCKET}} --query LocationConstraint --output text 2>/dev/null || echo "{{.REGION}}")
+          if [ "$r" = "None" ] || [ -z "$r" ]; then r="us-east-1"; fi
+          echo "$r"
     cmds:
       - |
         terraform -chdir={{.TF_DIR}} init \
           -backend-config="bucket={{.STATE_BUCKET}}" \
-          -backend-config="region={{.REGION}}" \
+          -backend-config="region={{.STATE_BUCKET_REGION}}" \
           -input=false -upgrade
 
   validate:
@@ -171,10 +187,15 @@ tasks:
       - terraform -chdir={{.TF_DIR}} plan -input=false -out=tfplan
 
   apply:
-    desc: "Apply the most recent saved plan (requires prior 'task plan')"
-    prompt: "Apply terraform plan to AWS account {{.ACCOUNT_ID}}? This modifies real resources."
+    desc: "Run terraform plan interactively and apply if approved"
+    prompt: "Apply terraform changes to AWS account {{.ACCOUNT_ID}}? This modifies real resources."
     cmds:
-      - terraform -chdir={{.TF_DIR}} apply tfplan
+      - terraform -chdir={{.TF_DIR}} apply -input=false
+
+  down:
+    desc: "Alias for destroy — tear down all Terraform-managed infrastructure"
+    cmds:
+      - task: destroy
 
   destroy:
     desc: "Destroy all Terraform-managed infrastructure"
@@ -292,6 +313,29 @@ tasks:
           --region          {{.EFFECTIVE_REGION}} \
           --kendra-index-id {{.KENDRA_INDEX_ID}}
 
+  pipeline:status:
+    desc: "Show the last 5 docs pipeline executions"
+    summary: |
+      Lists recent Step Functions executions for the docs pipeline,
+      showing status and start time.
+
+      Example:
+        task pipeline:status
+    deps: [init]
+    cmds:
+      - |
+        STATE_MACHINE_ARN=$(terraform -chdir={{.TF_DIR}} output -raw state_machine_arn 2>/dev/null || echo "")
+        if [ -z "${STATE_MACHINE_ARN}" ]; then
+          echo "No docs state machine found — has 'task apply' been run?"
+          exit 0
+        fi
+        aws stepfunctions list-executions \
+          --state-machine-arn "${STATE_MACHINE_ARN}" \
+          --region            "{{.REGION}}" \
+          --max-results       5 \
+          --query "executions[].{Status:status, Started:startDate, Name:name}" \
+          --output table
+
   # ── Graph pipeline (Neptune) ────────────────────────────────────────────────
 
   graph:populate:
@@ -303,53 +347,51 @@ tasks:
         3. Loads nodes and edges into Neptune via openCypher MERGE statements
 
       GRAPH_REPO_URIS is a space-separated list of GitHub HTTPS repo URLs.
-      Auto-detected from terraform.tfvars when not provided.
+      Auto-detected from terraform.tfvars (graph_repo_uris) when not provided.
 
-      Requires create_neptune=true and a deployed graph store.
+      Requires create_neptune=true and a deployed Neptune cluster.
+      Run 'task apply' with create_neptune=true in terraform.tfvars first.
 
       Example:
         task graph:populate GRAPH_REPO_URIS="https://github.com/org/infra-repo"
+        task graph:populate GRAPH_REPO_URIS="https://github.com/org/a https://github.com/org/b"
         task graph:populate   # uses graph_repo_uris from terraform.tfvars
     deps: [init]
-    vars:
-      GRAPH_STATE_MACHINE_ARN:
-        sh: 'terraform -chdir={{.TF_DIR}} output -raw graph_state_machine_arn 2>/dev/null || echo ""'
-      NEPTUNE_ENDPOINT:
-        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_cluster_endpoint 2>/dev/null || echo ""'
-      NEPTUNE_PORT:
-        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_port 2>/dev/null || echo "8182"'
-      GRAPH_STAGING_BUCKET:
-        sh: 'terraform -chdir={{.TF_DIR}} output -raw graph_staging_bucket_name 2>/dev/null || echo ""'
-      REPO_URIS_RAW:
-        sh: >
-          {{if .GRAPH_REPO_URIS}}echo "{{.GRAPH_REPO_URIS}}"{{else}}
-          grep graph_repo_uris {{.TF_DIR}}/terraform.tfvars 2>/dev/null | grep -oP '"[^"]+"' | tr -d '"' | tr '\n' ' ' || echo ""
-          {{end}}
     cmds:
       - |
-        if [ -z "{{.GRAPH_STATE_MACHINE_ARN}}" ]; then
+        # Resolve outputs after init has run
+        GRAPH_STATE_MACHINE_ARN=$(terraform -chdir={{.TF_DIR}} output -raw graph_state_machine_arn 2>/dev/null || echo "")
+        NEPTUNE_ENDPOINT=$(terraform -chdir={{.TF_DIR}} output -raw neptune_cluster_endpoint 2>/dev/null || echo "")
+        NEPTUNE_PORT=$(terraform -chdir={{.TF_DIR}} output -raw neptune_port 2>/dev/null || echo "8182")
+        GRAPH_STAGING_BUCKET=$(terraform -chdir={{.TF_DIR}} output -raw graph_staging_bucket_name 2>/dev/null || echo "")
+        if [ -n "{{.GRAPH_REPO_URIS}}" ]; then
+          REPO_URIS_RAW="{{.GRAPH_REPO_URIS}}"
+        else
+          REPO_URIS_RAW=$(grep graph_repo_uris {{.TF_DIR}}/terraform.tfvars 2>/dev/null | grep -oE '"[^"]+"' | tr -d '"' | tr '\n' ' ' || echo "")
+        fi
+        if [ -z "${GRAPH_STATE_MACHINE_ARN}" ]; then
           echo "Error: graph_state_machine_arn not found in Terraform output."
           echo "Ensure create_neptune=true and run 'task apply' first."
           exit 1
         fi
-        if [ -z "{{.REPO_URIS_RAW}}" ]; then
+        if [ -z "${REPO_URIS_RAW}" ]; then
           echo "Error: No repo URIs found."
           echo "Pass GRAPH_REPO_URIS or set graph_repo_uris in terraform.tfvars."
           exit 1
         fi
         # Build JSON array from space-separated URIs
-        REPO_JSON=$(echo "{{.REPO_URIS_RAW}}" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s .)
+        REPO_JSON=$(echo "${REPO_URIS_RAW}" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s .)
         INPUT=$(jq -n \
           --argjson repo_uris    "${REPO_JSON}" \
-          --arg     bucket       "{{.GRAPH_STAGING_BUCKET}}" \
-          --arg     endpoint     "{{.NEPTUNE_ENDPOINT}}" \
-          --arg     port         "{{.NEPTUNE_PORT}}" \
+          --arg     bucket       "${GRAPH_STAGING_BUCKET}" \
+          --arg     endpoint     "${NEPTUNE_ENDPOINT}" \
+          --arg     port         "${NEPTUNE_PORT}" \
           --arg     region       "{{.REGION}}" \
           '{repo_uris: $repo_uris, graph_staging_bucket: $bucket, neptune_endpoint: $endpoint, neptune_port: $port, region: $region}')
         echo "Starting graph pipeline..."
         echo "Repos: $(echo "${REPO_JSON}" | jq -r '.[]')"
         EXECUTION_ARN=$(aws stepfunctions start-execution \
-          --state-machine-arn "{{.GRAPH_STATE_MACHINE_ARN}}" \
+          --state-machine-arn "${GRAPH_STATE_MACHINE_ARN}" \
           --input             "${INPUT}" \
           --region            "{{.REGION}}" \
           --query executionArn --output text)
@@ -379,17 +421,15 @@ tasks:
       Example:
         task graph:status
     deps: [init]
-    vars:
-      GRAPH_STATE_MACHINE_ARN:
-        sh: 'terraform -chdir={{.TF_DIR}} output -raw graph_state_machine_arn 2>/dev/null || echo ""'
     cmds:
       - |
-        if [ -z "{{.GRAPH_STATE_MACHINE_ARN}}" ]; then
+        GRAPH_STATE_MACHINE_ARN=$(terraform -chdir={{.TF_DIR}} output -raw graph_state_machine_arn 2>/dev/null || echo "")
+        if [ -z "${GRAPH_STATE_MACHINE_ARN}" ]; then
           echo "No graph state machine found — is create_neptune=true?"
           exit 0
         fi
         aws stepfunctions list-executions \
-          --state-machine-arn "{{.GRAPH_STATE_MACHINE_ARN}}" \
+          --state-machine-arn "${GRAPH_STATE_MACHINE_ARN}" \
           --region            "{{.REGION}}" \
           --max-results       5 \
           --query "executions[].{Status:status, Started:startDate, Name:name}" \
@@ -508,9 +548,9 @@ tasks:
           else
             echo "MISSING: $f"; fail=1
           fi
-          [[ "$f" == *.sh ]] && [ -f "$f" ] && [ ! -x "$f" ] && echo "WARN: $f not executable"
+          if [[ "$f" == *.sh ]] && [ -f "$f" ] && [ ! -x "$f" ]; then echo "WARN: $f not executable"; fi
         done
-        [ "$fail" -ne 0 ] && { echo "Repository incomplete."; exit 1; } || true
+        if [ "$fail" -ne 0 ]; then echo "Repository incomplete."; exit 1; fi
 
   preflight:terraform:
     desc: "Check Terraform formatting and syntax"

@@ -2,13 +2,13 @@ version: 0.2
 
 # Graph pipeline buildspec — for each Terraform workspace:
 #   1. Clone the workspace repo
-#   2. terraform init + plan
-#   3. rover — extract nodes[] and edges[] from the plan
-#   4. ingest_graph.py — load into Neptune via openCypher MERGE statements
+#   2. terraform init (providers only; -backend=false avoids state access requirements)
+#   3. terraform graph -> DOT output
+#   4. ingest_graph.py — parse DOT and load nodes/edges into Neptune via openCypher
 #
 # Required environment variables (set by Step Functions / CodeBuild project):
 #   REPO_URI              — GitHub HTTPS URL of the Terraform workspace repo
-#   GRAPH_STAGING_BUCKET  — S3 bucket for rover JSON output
+#   GRAPH_STAGING_BUCKET  — S3 bucket for DOT snapshot upload
 #   NEPTUNE_ENDPOINT      — Neptune cluster writer endpoint
 #   NEPTUNE_PORT          — Neptune port (8182)
 #   NEPTUNE_IAM_AUTH      — "true" to sign requests with IAM SigV4
@@ -27,48 +27,48 @@ phases:
         unzip -q terraform.zip -d /usr/local/bin/
         rm terraform.zip
         terraform version
-      - |
-        # Install rover
-        ROVER_VERSION="0.3.3"
-        curl -fsSL "https://github.com/im2nguyen/rover/releases/download/v${ROVER_VERSION}/rover_${ROVER_VERSION}_linux_amd64.zip" -o rover.zip
-        unzip -q rover.zip -d /usr/local/bin/
-        mv /usr/local/bin/rover_v${ROVER_VERSION} /usr/local/bin/rover
-        chmod +x /usr/local/bin/rover
-        rm rover.zip
       - pip install -r codebuild/scripts/requirements_graph.txt
 
   pre_build:
     commands:
-      - echo "Cloning workspace repo ${REPO_URI}..."
-      - git clone --depth 1 "${REPO_URI}" workspace
-      - cd workspace
-      - terraform init -input=false -no-color
+      - |
+        echo "Cloning workspace repo ${REPO_URI}..."
+        git clone --depth 1 "${REPO_URI}" workspace
+
+        # Detect Terraform root: prefer terraform/ subdirectory, fall back to repo root
+        if ls workspace/terraform/*.tf 2>/dev/null | head -1 | grep -q .; then
+          TF_DIR="${CODEBUILD_SRC_DIR}/workspace/terraform"
+        else
+          TF_DIR="${CODEBUILD_SRC_DIR}/workspace"
+        fi
+        echo "TF_DIR=${TF_DIR}" > /tmp/build_env
+        echo "REPO_NAME=$(basename ${REPO_URI} .git)" >> /tmp/build_env
+        echo "Using Terraform root: ${TF_DIR}"
+
+        # Init providers only — skip backend to avoid state access requirements
+        cd "${TF_DIR}"
+        terraform init -input=false -no-color -backend=false 2>&1
 
   build:
     commands:
-      - cd workspace
-      - echo "Running terraform plan..."
-      - terraform plan -out=tfplan -input=false -no-color
       - |
-        # Extract repo name for output key
-        REPO_NAME=$(basename "${REPO_URI}" .git)
-        SNAPSHOT_KEY="snapshots/${REPO_NAME}/$(date -u +%Y%m%dT%H%M%SZ).json"
-        echo "Repo: ${REPO_NAME}, snapshot key: ${SNAPSHOT_KEY}"
-      - |
-        echo "Running rover to extract graph..."
-        rover -planPath tfplan -standalone -workingDir . 2>/dev/null || true
-        # rover outputs rover.zip — extract the plan JSON
-        unzip -q rover.zip -d rover_out 2>/dev/null || true
-      - |
-        echo "Ingesting graph into Neptune..."
+        source /tmp/build_env
+        SNAPSHOT_KEY="snapshots/${REPO_NAME}/$(date -u +%Y%m%dT%H%M%SZ).dot"
+
+        echo "Extracting dependency graph from ${TF_DIR}..."
+        cd "${TF_DIR}"
+        terraform graph > /tmp/graph.dot
+        echo "DOT graph written ($(wc -l < /tmp/graph.dot) lines)"
+
+        echo "Ingesting graph into Neptune (${NEPTUNE_ENDPOINT}:${NEPTUNE_PORT})..."
         python3 "${CODEBUILD_SRC_DIR}/codebuild/scripts/ingest_graph.py" \
-          --plan-path tfplan \
-          --repo-uri   "${REPO_URI}" \
-          --endpoint   "${NEPTUNE_ENDPOINT}" \
-          --port       "${NEPTUNE_PORT}" \
-          --region     "${AWS_REGION}" \
-          --iam-auth   "${NEPTUNE_IAM_AUTH}" \
-          --bucket     "${GRAPH_STAGING_BUCKET}" \
+          --dot-path     /tmp/graph.dot \
+          --repo-uri     "${REPO_URI}" \
+          --endpoint     "${NEPTUNE_ENDPOINT}" \
+          --port         "${NEPTUNE_PORT}" \
+          --region       "${AWS_REGION}" \
+          --iam-auth     "${NEPTUNE_IAM_AUTH}" \
+          --bucket       "${GRAPH_STAGING_BUCKET}" \
           --snapshot-key "${SNAPSHOT_KEY}"
 
   post_build:

@@ -8,14 +8,17 @@ This repository provisions a high-precision Amazon Kendra RAG pipeline for the H
 
 | Category | Command |
 | :--- | :--- |
-| **Deploy** | `task up REPO_URI={url} REGION=us-west-2` |
+| **Deploy** | `task up REPO_URI={url}` — REGION auto-detected from `terraform.tfvars` |
 | **Pipeline (full)** | `task pipeline:run` |
 | **Pipeline (targeted)** | `task pipeline:run TARGET=blogs` — `all`, `docs`, `registry`, `discuss`, `blogs` |
+| **Pipeline status** | `task pipeline:status` |
 | **Validation** | `task pipeline:test KENDRA_INDEX_ID={id}` |
 | **Token efficiency** | `task pipeline:token-efficiency` (auto-detects KENDRA_INDEX_ID from Terraform output) |
+| **Graph populate** | `task graph:populate GRAPH_REPO_URIS="https://github.com/org/repo"` |
+| **Graph status** | `task graph:status` |
 | **MCP Setup** | `task mcp:setup KENDRA_INDEX_ID={id}` (exposes RAG to Claude Code) |
 | **Claude Bedrock** | `task claude:setup` (routes Claude Code through Bedrock) |
-| **Terraform** | `task plan` \| `task apply` \| `task validate` |
+| **Terraform** | `task plan` \| `task apply` \| `task validate` \| `task destroy` |
 | **CI** | `task ci` (fmt:check + validate + shellcheck + tests) |
 
 ---
@@ -42,9 +45,14 @@ This repository provisions a high-precision Amazon Kendra RAG pipeline for the H
 
 | Path | Purpose |
 | :--- | :--- |
-| `terraform/` | All AWS infrastructure (S3, IAM, CodeBuild, Step Functions, EventBridge, Kendra, CloudWatch) |
-| `step-functions/rag_pipeline.asl.json` | ASL state machine definition (8 states) |
-| `codebuild/buildspec.yml` | CodeBuild build phases — PIPELINE_TARGET gating |
+| `terraform/` | All AWS infrastructure — Kendra, Neptune, CodeBuild, Step Functions, EventBridge, S3, IAM |
+| `terraform/modules/hashicorp-docs-pipeline/` | Kendra RAG pipeline module |
+| `terraform/modules/terraform-graph-store/` | Neptune graph pipeline module (opt-in: `create_neptune = true`) |
+| `terraform/bootstrap/` | State bucket bootstrap (runs before main module) |
+| `step-functions/rag_pipeline.asl.json` | Docs pipeline ASL state machine (8 states) |
+| `step-functions/graph_pipeline.asl.json` | Graph pipeline ASL state machine (Map over repos) |
+| `codebuild/buildspec.yml` | Docs pipeline CodeBuild phases — PIPELINE_TARGET gating |
+| `codebuild/buildspec_graph.yml` | Graph pipeline CodeBuild phases (terraform plan → rover → ingest) |
 | `codebuild/scripts/` | Data processing scripts (clone, discover, process, fetch, deduplicate, metadata) |
 | `scripts/` | Deploy, bootstrap, and operational scripts |
 | `mcp/server.py` | MCP server — exposes Kendra index as Claude Code tools |
@@ -62,11 +70,9 @@ This repository provisions a high-precision Amazon Kendra RAG pipeline for the H
 
 * **Bedrock model access**: Must be explicitly enabled per region in the Bedrock console (Model access → Request access for the desired Claude model). Used at query time only — not during ingestion.
 
-* **DynamoDB lock table**: The S3 Terraform backend requires a separate DynamoDB table for state locking. `bootstrap_state.sh` creates it. `task up` handles this automatically.
+* **Neptune is opt-in**: Set `create_neptune = true` in `terraform/terraform.tfvars` and supply `neptune_vpc_id` and `neptune_subnet_ids`. Without this, `task graph:populate` will fail with `graph_state_machine_arn not found`.
 
-* **S3 bucket creation in us-east-1**: Must omit `--create-bucket-configuration`. `bootstrap_state.sh` handles this conditionally.
-
-* **`inclusion_patterns` not `exclusion_patterns`**: The Kendra S3 data source must use `inclusion_patterns = ["*.md"]` — using `exclusion_patterns = ["*.metadata.json"]` blocks sidecars from all sync participation and causes `"invalid metadata"` errors.
+* **`template_configuration` not `s3_configuration`**: The Kendra S3 data source uses `template_configuration` with `inclusionPatterns = ["**/*.md"]`. Using `exclusion_patterns` blocks `.metadata.json` sidecars from sync participation and causes `"invalid metadata"` errors. Using `inclusion_patterns` avoids this.
 
 ---
 
@@ -88,7 +94,7 @@ This repository provisions a high-precision Amazon Kendra RAG pipeline for the H
 
 | Issue | Fix |
 | :--- | :--- |
-| Kendra metadata `"invalid metadata"` errors | Use `inclusion_patterns = ["*.md"]`, not `exclusion_patterns = ["*.metadata.json"]` |
+| Kendra metadata `"invalid metadata"` errors | Use `s3_configuration` with `inclusion_patterns = ["*.md"]`, not `exclusion_patterns = ["*.metadata.json"]`. `template_configuration` is invalid for S3 type and fails with `S3ConnectorConfiguration` error — see `kendra.tf` |
 | `DocumentId` validation failure | Omit `DocumentId` entirely — Kendra auto-assigns from the S3 object key |
 | `_source_uri` validation failure | Omit `_source_uri` — Kendra requires HTTP/HTTPS; only `s3://` is available at ingestion time |
 | Blog posts not fetched (0 files) | `hashicorp.com` is Cloudflare-protected — extract inline content from `<content>` (Atom) / `<content:encoded>` (RSS) tags |

@@ -15,7 +15,7 @@ This runbook covers day-to-day operations, failure diagnosis, and recovery proce
 | Amazon Neptune | `https://console.aws.amazon.com/neptune/home?region=REGION` |
 | S3 RAG bucket | `https://s3.console.aws.amazon.com/s3/buckets/hashicorp-rag-docs-REGION-SUFFIX` |
 
-Replace `REGION` with your deployment region (default: `us-east-1`).
+Replace `REGION` with your deployment region (auto-detected from `terraform/terraform.tfvars`; defaults to `us-east-1` if not set).
 
 ---
 
@@ -81,10 +81,13 @@ task pipeline:token-efficiency KENDRA_INDEX_ID=<INDEX_ID> REGION=us-east-1
 ### Trigger a graph population run
 
 ```bash
-# Using a list of Terraform workspace repo URLs
-task graph:populate GRAPH_REPO_URIS='["https://github.com/org/infra-repo","https://github.com/org/app-repo"]'
+# Single repo
+task graph:populate GRAPH_REPO_URIS="https://github.com/org/infra-repo"
 
-# Or pass via tfvars and omit the override
+# Multiple repos (space-separated)
+task graph:populate GRAPH_REPO_URIS="https://github.com/org/infra-repo https://github.com/org/app-repo"
+
+# Or set graph_repo_uris in terraform.tfvars and omit the override
 task graph:populate
 ```
 

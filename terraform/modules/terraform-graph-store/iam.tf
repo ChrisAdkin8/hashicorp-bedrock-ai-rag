@@ -108,9 +108,11 @@ resource "aws_iam_role_policy" "step_functions" {
           "events:DeleteRule",
           "events:RemoveTargets",
         ]
-        Resource = [
-          "arn:aws:events:${var.region}:${var.account_id}:rule/StepFunctionsGetEventsForCodeBuildStartBuildRule"
-        ]
+        # Resource "*" is required for Step Functions managed-rule creation.
+        # Step Functions validates this permission when creating a state machine that
+        # uses .sync integrations inside Map states. The exact managed-rule ARN is
+        # not known at policy creation time — AWS generates it at state machine creation.
+        Resource = ["*"]
       },
     ]
   })

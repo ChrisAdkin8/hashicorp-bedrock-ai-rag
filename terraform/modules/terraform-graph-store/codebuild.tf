@@ -3,11 +3,11 @@
 
 resource "aws_security_group" "codebuild" {
   name        = "${var.cluster_identifier}-codebuild-sg"
-  description = "CodeBuild graph-pipeline egress — allows Neptune and HTTPS"
+  description = "CodeBuild graph-pipeline egress - allows Neptune and HTTPS"
   vpc_id      = var.vpc_id
 
   egress {
-    description     = "Neptune Bolt/HTTPS — scoped to Neptune SG only"
+    description     = "Neptune Bolt/HTTPS - scoped to Neptune SG only"
     from_port       = 8182
     to_port         = 8182
     protocol        = "tcp"
@@ -93,7 +93,7 @@ resource "aws_codebuild_project" "graph_pipeline" {
 
   vpc_config {
     vpc_id             = var.vpc_id
-    subnets            = var.subnet_ids
+    subnets            = var.create_nat_gateway ? [aws_subnet.codebuild_private[0].id] : var.subnet_ids
     security_group_ids = [aws_security_group.codebuild.id]
   }
 

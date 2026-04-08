@@ -218,7 +218,7 @@ Both feeds include full article HTML inline:
 | Setting | Value |
 |---|---|
 | Edition | `ENTERPRISE_EDITION` (100,000 docs per SCU; 10,000 queries/day included) |
-| Data source type | S3 |
+| Data source type | S3 (via `template_configuration` — enables `inclusionPatterns` on `.md` files without excluding `.metadata.json` sidecars) |
 | Sync schedule | On-demand (triggered by Step Functions after each CodeBuild run) |
 | Custom attributes | `product` (STRING), `product_family` (STRING), `source_type` (STRING) |
 

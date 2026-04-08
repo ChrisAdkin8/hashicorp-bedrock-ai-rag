@@ -33,6 +33,8 @@ module "terraform_graph_store" {
   notification_email     = var.notification_email
   refresh_schedule       = var.graph_refresh_schedule
   scheduler_timezone     = var.scheduler_timezone
-  codebuild_compute_type = var.graph_codebuild_compute_type
-  tags                   = var.tags
+  codebuild_compute_type        = var.graph_codebuild_compute_type
+  create_nat_gateway            = var.neptune_create_nat_gateway
+  codebuild_private_subnet_cidr = var.neptune_codebuild_private_subnet_cidr
+  tags                          = var.tags
 }

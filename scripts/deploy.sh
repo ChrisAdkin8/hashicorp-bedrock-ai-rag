@@ -59,13 +59,25 @@ terraform -chdir="${TF_DIR}" init \
   -reconfigure \
   -input=false
 
-# Write tfvars if not already present
-if [[ ! -f "${TF_DIR}/terraform.tfvars" ]]; then
+# Update region and repo_uri in terraform.tfvars, preserving any other variables
+# (e.g. Neptune config) that the user may have added.
+if [[ -f "${TF_DIR}/terraform.tfvars" ]]; then
+  # Update existing lines or append if absent
+  for kv in "region = \"${REGION}\"" "repo_uri = \"${REPO_URI}\""; do
+    key=$(echo "$kv" | cut -d= -f1 | tr -d ' ')
+    if grep -q "^${key}" "${TF_DIR}/terraform.tfvars"; then
+      sed -i.bak "s|^${key}.*|${kv}|" "${TF_DIR}/terraform.tfvars" && rm "${TF_DIR}/terraform.tfvars.bak"
+    else
+      echo "${kv}" >> "${TF_DIR}/terraform.tfvars"
+    fi
+  done
+  echo "Updated ${TF_DIR}/terraform.tfvars (region=${REGION})"
+else
   cat > "${TF_DIR}/terraform.tfvars" <<EOF
 region   = "${REGION}"
 repo_uri = "${REPO_URI}"
 EOF
-  echo "Wrote ${TF_DIR}/terraform.tfvars"
+  echo "Wrote ${TF_DIR}/terraform.tfvars (region=${REGION})"
 fi
 
 echo ""
