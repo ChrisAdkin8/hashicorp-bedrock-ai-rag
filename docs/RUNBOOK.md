@@ -62,9 +62,14 @@ task pipeline:test KENDRA_INDEX_ID=$(terraform -chdir=terraform output -raw kend
 ### Measure token efficiency
 
 ```bash
+# All modes (Kendra + graph + combined) — auto-detects IDs from Terraform
 task pipeline:token-efficiency
-# or explicitly:
-task pipeline:token-efficiency KENDRA_INDEX_ID=<INDEX_ID> REGION=us-east-1
+
+# Individual modes
+task pipeline:token-efficiency MODE=kendra     # Kendra RAG only
+task pipeline:token-efficiency MODE=graph      # Neptune graph only
+task pipeline:token-efficiency MODE=combined   # Both together
+task pipeline:token-efficiency MODE=all        # All three (default)
 ```
 
 ### Re-ingest after adding new content sources
@@ -127,6 +132,40 @@ curl -X POST \
 
 ---
 
+## Neptune Query Troubleshooting (MCP Server)
+
+The MCP server queries Neptune via SigV4-signed HTTP POST. These issues are specific to the query path (not the ingestion pipeline).
+
+### Connection timeout from MCP server
+
+Neptune does not expose a public endpoint. The MCP server must reach the cluster on port 8182. Options:
+
+- **SSH tunnel**: `ssh -L 8182:<NEPTUNE_ENDPOINT>:8182 bastion-host` — then set `NEPTUNE_ENDPOINT=localhost` in the MCP config.
+- **AWS Client VPN**: Connect to the VPC, then use the Neptune endpoint directly.
+- **Run from within VPC**: Deploy the MCP server on EC2/ECS in the same VPC.
+
+The MCP server has a 30-second timeout. If Neptune is unreachable, the error message explicitly mentions VPC connectivity.
+
+### SigV4 signature mismatch (403)
+
+- Confirm `NEPTUNE_IAM_AUTH=true` in the MCP server environment.
+- Verify that the AWS credentials have `neptune-db:connect` and `neptune-db:ReadDataViaQuery` permissions on the cluster.
+- The server uses form-encoded POST (`Content-Type: application/x-www-form-urlencoded`) with `parameters` as a JSON string — this is required for SigV4 payload hash to match.
+
+### Empty results from `get_resource_dependencies`
+
+1. Verify the graph has been populated: `task graph:populate`.
+2. Check that the resource address format matches — the graph stores `aws_lambda_function.processor` not `module.foo.aws_lambda_function.processor` (module prefixes are stripped during ingestion).
+3. Use `find_resources_by_type` first to confirm the resource type exists in the graph.
+
+### Empty results from `find_resources_by_type`
+
+1. Run `task graph:status` to confirm the last pipeline run succeeded.
+2. Check that the repository containing those resources is in `graph_repo_uris`.
+3. Verify the resource type string matches exactly (e.g. `aws_iam_role` not `aws_iam_role_policy`).
+
+---
+
 ## Failure Diagnosis — Docs Pipeline
 
 ### CodeBuild build failed
@@ -155,6 +194,8 @@ curl -X POST \
 - **"Index not found in region X … Found it in Y"** — the script scans supported regions and suggests the correct one.
 - **"Index is not ACTIVE"** — wait for Kendra to finish initialising; check the Kendra console.
 - **No results / empty output** — run `task pipeline:run` to ingest and sync.
+- **"NEPTUNE_ENDPOINT required for mode X"** — deploy Neptune (`create_neptune=true` + `task apply`) or use `MODE=kendra`.
+- **Neptune connection error in graph/combined mode** — Neptune is VPC-only; see "Neptune Query Troubleshooting" below.
 
 ### Zero retrieval results
 

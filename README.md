@@ -27,14 +27,17 @@ CodeBuild                  CodeBuild (per repo)
     ▼                          ▼
 S3 (RAG docs)              Amazon Neptune
     │                      (property graph)
-    ▼
-Amazon Kendra
-(NLP index)
+    ▼                          │
+Amazon Kendra                  │
+(NLP index)                    │
     │                          │
     └──────────┬───────────────┘
                ▼
          MCP Server
-    (unified query layer)
+    (search_hashicorp_docs,
+     get_resource_dependencies,
+     find_resources_by_type,
+     get_index_info)
                │
                ▼
          Claude Code
@@ -151,7 +154,7 @@ The graph pipeline runs `terraform plan -out=tfplan` in each workspace repo, ext
 5. **Validate retrieval quality**
 
    ```bash
-   task pipeline:test KENDRA_INDEX_ID=<INDEX_ID>
+   task pipeline:test
    ```
 
 6. *(Optional)* **Populate the graph database**
@@ -211,15 +214,17 @@ The graph pipeline runs `terraform plan -out=tfplan` in each workspace repo, ext
 The MCP server in `mcp/server.py` exposes the Kendra index as tools that Claude Code calls automatically.
 
 ```bash
-task mcp:install                                    # install mcp + boto3 into .venv
-task mcp:setup KENDRA_INDEX_ID=<INDEX_ID>           # register with Claude Code, then restart
-task mcp:test  KENDRA_INDEX_ID=<INDEX_ID>           # smoke-test retrieval
+task mcp:install    # install mcp + boto3 + requests into .venv
+task mcp:setup      # register with Claude Code (auto-detects IDs from Terraform), then restart
+task mcp:test       # smoke-test retrieval (Kendra + Neptune if deployed)
 ```
 
 Available tools:
 
 - **`search_hashicorp_docs`** — keyword + semantic search with optional `product_family` and `source_type` filters
-- **`get_index_info`** — inspect region, index ID, edition, and status
+- **`get_resource_dependencies`** — traverse Terraform resource dependency graph (downstream, upstream, or both)
+- **`find_resources_by_type`** — list all resources of a given type, optionally filtered by repository
+- **`get_index_info`** — inspect region, Kendra index, Neptune connectivity, and status
 
 ### Claude Code via Amazon Bedrock
 
@@ -246,27 +251,46 @@ Valid `TARGET` values: `all` (default), `docs`, `registry`, `discuss`, `blogs`.
 
 ```python
 import boto3
-import anthropic
+import json
+import urllib.parse
+import requests
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 
-# 1. Retrieve context from Kendra
-kendra = boto3.client("kendra", region_name="us-east-1")
+region = "us-east-1"
+
+# 1. Retrieve documentation context from Kendra
+kendra = boto3.client("kendra", region_name=region)
 response = kendra.query(
     IndexId="<KENDRA_INDEX_ID>",
     QueryText="How do I use Vault dynamic secrets with Terraform?",
     PageSize=5,
 )
-context = "\n\n---\n\n".join(
+docs_context = "\n\n---\n\n".join(
     item["DocumentExcerpt"]["Text"]
     for item in response.get("ResultItems", [])
 )
 
-# 2. Pass context to Claude via Bedrock
-bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+# 2. Query the Terraform dependency graph from Neptune
+endpoint, port = "<NEPTUNE_ENDPOINT>", 8182
+url = f"https://{endpoint}:{port}/openCypher"
+query = "MATCH (a:Resource)-[:DEPENDS_ON]->(b:Resource) WHERE a.type = 'aws_iam_role' RETURN b.id, b.type LIMIT 10"
+body = urllib.parse.urlencode({"query": query, "parameters": json.dumps({})})
+headers = {"Content-Type": "application/x-www-form-urlencoded"}
+creds = boto3.Session().get_credentials().get_frozen_credentials()
+aws_req = AWSRequest(method="POST", url=url, data=body, headers=headers)
+SigV4Auth(creds, "neptune-db", region).add_auth(aws_req)
+graph_context = json.dumps(
+    requests.post(url, data=body, headers=dict(aws_req.headers), timeout=30).json().get("results", [])
+)
+
+# 3. Pass combined context to Claude via Bedrock
+bedrock = boto3.client("bedrock-runtime", region_name=region)
 response = bedrock.converse(
     modelId="anthropic.claude-sonnet-4-20250514-v1:0",
     messages=[{
         "role": "user",
-        "content": [{"text": f"Context:\n{context}\n\nHow do I use Vault dynamic secrets with Terraform?"}],
+        "content": [{"text": f"Docs:\n{docs_context}\n\nGraph:\n{graph_context}\n\nHow do I use Vault dynamic secrets with Terraform?"}],
     }],
 )
 print(response["output"]["message"]["content"][0]["text"])
@@ -288,7 +312,7 @@ print(response["output"]["message"]["content"][0]["text"])
 | `task pipeline:run` | Trigger a docs pipeline run and wait for completion |
 | `task pipeline:test` | Run retrieval validation queries against Kendra |
 | `task pipeline:status` | List last 5 docs pipeline executions |
-| `task pipeline:token-efficiency` | Compare RAG token cost vs full-page paste |
+| `task pipeline:token-efficiency` | Compare token cost across backends (`MODE=kendra\|graph\|combined\|all`) |
 | `task graph:populate` | Trigger a graph pipeline run and wait for completion |
 | `task graph:status` | List last 5 graph pipeline executions |
 | `task mcp:install` | Install MCP server dependencies |

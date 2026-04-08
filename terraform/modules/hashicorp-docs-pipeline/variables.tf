@@ -1,12 +1,3 @@
-variable "region" {
-  description = "AWS region for all resources."
-  type        = string
-  validation {
-    condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]$", var.region))
-    error_message = "Must be a valid AWS region identifier (e.g. us-east-1)."
-  }
-}
-
 variable "kendra_edition" {
   description = "Kendra index edition. DEVELOPER_EDITION (~$810/mo) or ENTERPRISE_EDITION (~$1400/mo)."
   type        = string
@@ -50,11 +41,6 @@ variable "create_github_oidc_provider" {
   description = "Set to true to create the GitHub Actions OIDC provider and associated IAM role."
   type        = bool
   default     = false
-}
-
-variable "account_id" {
-  description = "AWS account ID. Passed from the root module to avoid duplicate data source calls."
-  type        = string
 }
 
 variable "tags" {

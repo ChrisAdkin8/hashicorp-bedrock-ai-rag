@@ -9,7 +9,7 @@ resource "aws_iam_role" "kendra" {
       Principal = { Service = "kendra.amazonaws.com" }
       Action    = "sts:AssumeRole"
       Condition = {
-        StringEquals = { "aws:SourceAccount" = var.account_id }
+        StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
       }
     }]
   })
@@ -40,8 +40,8 @@ resource "aws_iam_role_policy" "kendra" {
           "logs:DescribeLogStreams"
         ]
         Resource = [
-          "arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/kendra/*",
-          "arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/kendra/*:*"
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/kendra/*",
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/kendra/*:*"
         ]
       },
       {
@@ -64,7 +64,7 @@ resource "aws_iam_role_policy" "kendra" {
         ]
         Resource = ["*"]
         Condition = {
-          StringLike = { "kms:ViaService" = "s3.${var.region}.amazonaws.com" }
+          StringLike = { "kms:ViaService" = "s3.${data.aws_region.current.name}.amazonaws.com" }
         }
       },
       {
@@ -73,7 +73,7 @@ resource "aws_iam_role_policy" "kendra" {
           "kendra:BatchPutDocument",
           "kendra:BatchDeleteDocument"
         ]
-        Resource = ["arn:aws:kendra:${var.region}:${var.account_id}:index/*"]
+        Resource = ["arn:aws:kendra:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:index/*"]
       }
     ]
   })
@@ -112,18 +112,18 @@ resource "aws_iam_role_policy" "codebuild" {
         Action   = ["kms:GenerateDataKey", "kms:Decrypt"]
         Resource = ["*"]
         Condition = {
-          StringLike = { "kms:ViaService" = "s3.${var.region}.amazonaws.com" }
+          StringLike = { "kms:ViaService" = "s3.${data.aws_region.current.name}.amazonaws.com" }
         }
       },
       {
         Effect   = "Allow"
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = ["arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/codebuild/*"]
+        Resource = ["arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/*"]
       },
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = ["arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:github-token-*"]
+        Resource = ["arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:github-token-*"]
         Condition = {
           StringEquals = { "aws:ResourceTag/Project" = "hashicorp-rag-pipeline" }
         }
@@ -181,7 +181,7 @@ resource "aws_iam_role_policy" "step_functions" {
           "events:RemoveTargets",
         ]
         Resource = [
-          "arn:aws:events:${var.region}:${var.account_id}:rule/StepFunctionsGetEventsForCodeBuildStartBuildRule"
+          "arn:aws:events:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:rule/StepFunctionsGetEventsForCodeBuildStartBuildRule"
         ]
       },
     ]
@@ -199,7 +199,7 @@ resource "aws_iam_role" "scheduler" {
       Principal = { Service = "scheduler.amazonaws.com" }
       Action    = "sts:AssumeRole"
       Condition = {
-        StringEquals = { "aws:SourceAccount" = var.account_id }
+        StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
       }
     }]
   })
@@ -269,35 +269,35 @@ resource "aws_iam_role_policy" "github_actions" {
         Resource = [
           aws_s3_bucket.rag_docs.arn,
           "${aws_s3_bucket.rag_docs.arn}/*",
-          "arn:aws:s3:::${var.account_id}-tf-state-*",
-          "arn:aws:s3:::${var.account_id}-tf-state-*/*",
+          "arn:aws:s3:::${data.aws_caller_identity.current.account_id}-tf-state-*",
+          "arn:aws:s3:::${data.aws_caller_identity.current.account_id}-tf-state-*/*",
         ]
       },
       {
         Sid      = "Kendra"
         Effect   = "Allow"
         Action   = ["kendra:*"]
-        Resource = ["arn:aws:kendra:${var.region}:${var.account_id}:index/*"]
+        Resource = ["arn:aws:kendra:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:index/*"]
       },
       {
         Sid      = "CodeBuild"
         Effect   = "Allow"
         Action   = ["codebuild:*"]
-        Resource = ["arn:aws:codebuild:${var.region}:${var.account_id}:project/rag-*"]
+        Resource = ["arn:aws:codebuild:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:project/rag-*"]
       },
       {
         Sid      = "StepFunctions"
         Effect   = "Allow"
         Action   = ["states:*"]
-        Resource = ["arn:aws:states:${var.region}:${var.account_id}:stateMachine:rag-*"]
+        Resource = ["arn:aws:states:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:stateMachine:rag-*"]
       },
       {
         Sid    = "Scheduler"
         Effect = "Allow"
         Action = ["scheduler:*"]
         Resource = [
-          "arn:aws:scheduler:${var.region}:${var.account_id}:schedule/*/*",
-          "arn:aws:scheduler:${var.region}:${var.account_id}:schedule-group/*",
+          "arn:aws:scheduler:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:schedule/*/*",
+          "arn:aws:scheduler:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:schedule-group/*",
         ]
       },
       {
@@ -312,9 +312,9 @@ resource "aws_iam_role_policy" "github_actions" {
           "iam:DeleteOpenIDConnectProvider",
         ]
         Resource = [
-          "arn:aws:iam::${var.account_id}:role/rag-*",
-          "arn:aws:iam::${var.account_id}:role/hashicorp-*",
-          "arn:aws:iam::${var.account_id}:oidc-provider/token.actions.githubusercontent.com",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/rag-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/hashicorp-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com",
         ]
       },
       {
@@ -325,8 +325,8 @@ resource "aws_iam_role_policy" "github_actions" {
           "logs:CreateLogStream", "logs:PutLogEvents",
         ]
         Resource = [
-          "arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/codebuild/rag-*",
-          "arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/codebuild/rag-*:*",
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/rag-*",
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/rag-*:*",
         ]
       },
       {
@@ -336,7 +336,7 @@ resource "aws_iam_role_policy" "github_actions" {
           "sns:CreateTopic", "sns:DeleteTopic", "sns:Subscribe", "sns:Unsubscribe",
           "sns:GetTopicAttributes", "sns:SetTopicAttributes",
         ]
-        Resource = ["arn:aws:sns:${var.region}:${var.account_id}:rag-*"]
+        Resource = ["arn:aws:sns:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:rag-*"]
       },
       {
         Sid    = "CloudWatchAlarms"
@@ -345,7 +345,7 @@ resource "aws_iam_role_policy" "github_actions" {
           "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms",
           "cloudwatch:DescribeAlarms",
         ]
-        Resource = ["arn:aws:cloudwatch:${var.region}:${var.account_id}:alarm:rag-*"]
+        Resource = ["arn:aws:cloudwatch:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:alarm:rag-*"]
       },
       {
         Sid    = "EventBridge"
@@ -354,7 +354,7 @@ resource "aws_iam_role_policy" "github_actions" {
           "events:PutTargets", "events:PutRule", "events:DescribeRule",
           "events:DeleteRule", "events:RemoveTargets",
         ]
-        Resource = ["arn:aws:events:${var.region}:${var.account_id}:rule/StepFunctionsGetEvents*"]
+        Resource = ["arn:aws:events:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:rule/StepFunctionsGetEvents*"]
       },
       {
         Sid      = "STS"

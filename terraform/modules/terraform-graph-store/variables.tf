@@ -1,12 +1,3 @@
-variable "region" {
-  description = "AWS region for Neptune resources."
-  type        = string
-  validation {
-    condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]$", var.region))
-    error_message = "Must be a valid AWS region identifier (e.g. us-east-1)."
-  }
-}
-
 variable "vpc_id" {
   description = "VPC ID in which to deploy the Neptune cluster."
   type        = string
@@ -82,11 +73,6 @@ variable "tags" {
 }
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
-
-variable "account_id" {
-  description = "AWS account ID. Passed from the root module to avoid duplicate data source calls."
-  type        = string
-}
 
 variable "repo_uri" {
   description = "GitHub HTTPS URL of this repository — CodeBuild clones it to access pipeline scripts."

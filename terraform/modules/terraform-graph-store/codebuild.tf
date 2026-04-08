@@ -80,7 +80,7 @@ resource "aws_codebuild_project" "graph_pipeline" {
 
     environment_variable {
       name  = "AWS_REGION"
-      value = var.region
+      value = data.aws_region.current.name
     }
   }
 

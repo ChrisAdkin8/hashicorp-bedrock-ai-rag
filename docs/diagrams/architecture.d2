@@ -1,0 +1,178 @@
+vars: {
+  d2-config: {
+    layout-engine: elk
+    theme-id: 200
+  }
+}
+
+direction: down
+
+style: {
+  fill: "#0a0a0f"
+}
+
+grid: "" {
+  grid-rows: 2
+  grid-columns: 2
+  grid-gap: 20
+  style: { fill: "#0a0a0f"; stroke: "#0a0a0f" }
+
+  # ── Top-left: Docs Pipeline ──────────────────────────────────────────────
+
+  docs: "Docs Pipeline" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    sched: "EventBridge\nSun 02:00" {
+      shape: rectangle
+      style: { fill: "#1e1b4b"; stroke: "#818cf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+    sfn: "Step Functions\n8 states" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+    build: "CodeBuild\nclone | process\nfetch | dedup" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+    s3: "S3 RAG\nKMS" {
+      shape: rectangle
+      style: { fill: "#1c1917"; stroke: "#f59e0b"; font-color: "#fcd34d"; border-radius: 6; font-size: 11; bold: true }
+    }
+    kendra: "Amazon Kendra\nNLP index" {
+      shape: cylinder
+      style: { fill: "#1a0a2e"; stroke: "#a855f7"; font-color: "#d8b4fe"; font-size: 12; bold: true }
+    }
+
+    sched -> sfn: "trigger" {
+      style: { stroke: "#818cf8"; stroke-width: 2; font-color: "#818cf8"; font-size: 10 }
+    }
+    sfn -> build: "StartBuild" {
+      style: { stroke: "#38bdf8"; stroke-width: 2; font-color: "#38bdf8"; font-size: 10 }
+    }
+    build -> s3: "s3 sync" {
+      style: { stroke: "#f59e0b"; stroke-width: 2; font-color: "#f59e0b"; font-size: 10 }
+    }
+    s3 -> kendra: "sync" {
+      style: { stroke: "#a855f7"; stroke-width: 2; font-color: "#a855f7"; font-size: 10 }
+    }
+  }
+
+  # ── Top-right: Serving ───────────────────────────────────────────────────
+
+  serving: "Serving Layer" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    mcp: "MCP Server\nsearch_hashicorp_docs\nget_resource_dependencies\nfind_resources_by_type\nget_index_info" {
+      shape: rectangle
+      style: { fill: "#7c3aed"; stroke: "#a78bfa"; font-color: "#f9fafb"; border-radius: 8; font-size: 12; bold: true }
+    }
+
+    claude: "Claude Code" {
+      shape: rectangle
+      style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 12; bold: true }
+    }
+
+    bedrock: "Bedrock" {
+      shape: rectangle
+      style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 12; bold: true }
+    }
+
+    sdk: "SDK / boto3" {
+      shape: rectangle
+      style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 12; bold: true }
+    }
+
+    mcp -> claude: "MCP tools" {
+      style: { stroke: "#fbbf24"; stroke-width: 2; font-color: "#fbbf24"; font-size: 10 }
+    }
+    mcp -> bedrock: "tool use" {
+      style: { stroke: "#fbbf24"; stroke-width: 2; font-color: "#fbbf24"; font-size: 10 }
+    }
+    mcp -> sdk: "direct" {
+      style: { stroke: "#fbbf24"; stroke-width: 2; font-color: "#fbbf24"; font-size: 10 }
+    }
+  }
+
+  # ── Bottom-left: Graph Pipeline ──────────────────────────────────────────
+
+  graph: "Graph Pipeline" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    sched: "EventBridge\nSun 03:00" {
+      shape: rectangle
+      style: { fill: "#1e1b4b"; stroke: "#818cf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+    sfn: "Step Functions\nMap x3" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+    build: "CodeBuild (VPC)\nplan | rover | ingest" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+    neptune: "Amazon Neptune\nopenCypher" {
+      shape: cylinder
+      style: { fill: "#1a0a2e"; stroke: "#a855f7"; font-color: "#d8b4fe"; font-size: 12; bold: true }
+    }
+
+    sched -> sfn: "trigger" {
+      style: { stroke: "#818cf8"; stroke-width: 2; font-color: "#818cf8"; font-size: 10 }
+    }
+    sfn -> build: "StartBuild" {
+      style: { stroke: "#38bdf8"; stroke-width: 2; font-color: "#38bdf8"; font-size: 10 }
+    }
+    build -> neptune: "MERGE" {
+      style: { stroke: "#a855f7"; stroke-width: 2; font-color: "#a855f7"; font-size: 10 }
+    }
+  }
+
+  # ── Bottom-right: IaC ───────────────────────────────────────────────────
+
+  iac: "Infrastructure as Code" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    terraform: "Terraform >= 1.10\nRemote S3 state\nProvisions all resources" {
+      shape: rectangle
+      style: { fill: "#1c1917"; stroke: "#a78bfa"; font-color: "#f9fafb"; border-radius: 6; font-size: 12; bold: true }
+    }
+  }
+}
+
+# ── Cross-cell connections ─────────────────────────────────────────────────
+
+grid.docs.kendra -> grid.serving.mcp: "kendra:query" {
+  style: { stroke: "#34d399"; stroke-width: 2; font-color: "#34d399"; font-size: 10 }
+}
+grid.graph.neptune -> grid.serving.mcp: "SigV4 POST" {
+  style: { stroke: "#34d399"; stroke-width: 2; font-color: "#34d399"; font-size: 10 }
+}

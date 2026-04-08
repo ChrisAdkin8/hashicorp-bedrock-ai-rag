@@ -1,184 +1,238 @@
 vars: {
   d2-config: {
     layout-engine: elk
+    theme-id: 200
   }
 }
 
 direction: down
 
 style: {
-  fill: "#000000"
+  fill: "#0a0a0f"
 }
 
-# ── Consumers ─────────────────────────────────────────────────────────────────
+grid: "" {
+  grid-rows: 4
+  grid-columns: 2
+  grid-gap: 20
+  style: { fill: "#0a0a0f"; stroke: "#0a0a0f" }
 
-claude_code: "Claude Code\n(MCP Client)" {
-  width: 220
-  shape: rectangle
-  style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 13; bold: true }
-}
+  # ── Row 1: Consumers | MCP Server ────────────────────────────────────────
 
-bedrock_agent: "Bedrock Agent\n(external caller)" {
-  width: 220
-  shape: rectangle
-  style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 13; bold: true }
-}
+  consumers: "Consumers" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
 
-ci_pipeline: "CI / GitHub Actions\n(automated checks)" {
-  width: 220
-  shape: rectangle
-  style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 13; bold: true }
-}
+    claude_code: "Claude Code" {
+      shape: rectangle
+      style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 12; bold: true }
+    }
 
-# ── Unified query layer ────────────────────────────────────────────────────────
+    bedrock_agent: "Bedrock Agent" {
+      shape: rectangle
+      style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 12; bold: true }
+    }
 
-mcp_server: "Unified MCP Server\nquery_infrastructure_knowledge()" {
-  width: 300
-  shape: rectangle
-  style: { fill: "#7c3aed"; stroke: "#a78bfa"; font-color: "#f9fafb"; border-radius: 8; font-size: 14; bold: true }
-}
-
-router: "Intent Router\nclassify: semantic | structural | hybrid" {
-  width: 280
-  shape: rectangle
-  style: { fill: "#1d4ed8"; stroke: "#60a5fa"; font-color: "#f9fafb"; border-radius: 6; font-size: 12; bold: true }
-}
-
-merger: "Result Merger & Ranker\ndeduplicate · score · truncate" {
-  width: 280
-  shape: rectangle
-  style: { fill: "#1d4ed8"; stroke: "#60a5fa"; font-color: "#f9fafb"; border-radius: 6; font-size: 12; bold: true }
-}
-
-# ── Data stores ───────────────────────────────────────────────────────────────
-
-kendra: "Amazon Kendra\nRAG — HashiCorp product docs" {
-  width: 380
-  shape: cylinder
-  style: { fill: "#047857"; stroke: "#34d399"; font-color: "#f9fafb"; font-size: 13; bold: true }
-}
-
-neptune: "Amazon Neptune\nGraph DB — Terraform plan DAG" {
-  width: 380
-  shape: cylinder
-  style: { fill: "#047857"; stroke: "#34d399"; font-color: "#f9fafb"; font-size: 13; bold: true }
-}
-
-# ── Ingest pipelines ──────────────────────────────────────────────────────────
-
-ingest_docs: "Doc Ingestion\nCodeBuild → S3 → Kendra sync" {
-  width: 240
-  shape: rectangle
-  style: { fill: "#3730a3"; stroke: "#818cf8"; font-color: "#f9fafb"; border-radius: 4; font-size: 12; bold: true }
-}
-
-ingest_tf: "Terraform Plan Ingest\nterraform plan → rover → Neptune" {
-  width: 240
-  shape: rectangle
-  style: { fill: "#3730a3"; stroke: "#818cf8"; font-color: "#f9fafb"; border-radius: 4; font-size: 12; bold: true }
-}
-
-# ── External sources ──────────────────────────────────────────────────────────
-
-hashicorp_docs: "HashiCorp Docs\n(GitHub repos + feeds)" {
-  width: 220
-  shape: rectangle
-  style: { fill: "#b91c1c"; stroke: "#f87171"; font-color: "#f9fafb"; border-radius: 4; font-size: 12; bold: true }
-}
-
-tf_configs: "Terraform Configs\n(workspace repos)" {
-  width: 220
-  shape: rectangle
-  style: { fill: "#b91c1c"; stroke: "#f87171"; font-color: "#f9fafb"; border-radius: 4; font-size: 12; bold: true }
-}
-
-# ── Query request path ────────────────────────────────────────────────────────
-
-claude_code -> mcp_server: "" {
-  style: { stroke: "#fbbf24"; stroke-width: 2 }
-}
-bedrock_agent -> mcp_server: "" {
-  style: { stroke: "#fbbf24"; stroke-width: 2 }
-}
-ci_pipeline -> mcp_server: "" {
-  style: { stroke: "#fbbf24"; stroke-width: 2 }
-}
-
-mcp_server -> router: "route query" {
-  style: { stroke: "#a78bfa"; font-color: "#a78bfa"; font-size: 11; stroke-width: 2 }
-}
-
-router -> kendra: "semantic search" {
-  style: { stroke: "#60a5fa"; font-color: "#60a5fa"; font-size: 11 }
-}
-router -> neptune: "graph traversal" {
-  style: { stroke: "#60a5fa"; font-color: "#60a5fa"; font-size: 11 }
-}
-
-# ── Query response path (dashed — flows back up) ──────────────────────────────
-
-kendra -> merger: "ranked passages" {
-  style: { stroke: "#34d399"; font-color: "#34d399"; font-size: 11; stroke-dash: 4 }
-}
-neptune -> merger: "graph results" {
-  style: { stroke: "#34d399"; font-color: "#34d399"; font-size: 11; stroke-dash: 4 }
-}
-
-merger -> mcp_server: "unified context" {
-  style: { stroke: "#a78bfa"; font-color: "#a78bfa"; font-size: 11; stroke-dash: 4; stroke-width: 2 }
-}
-
-# ── Ingest path ───────────────────────────────────────────────────────────────
-
-hashicorp_docs -> ingest_docs: "" {
-  style: { stroke: "#f87171"; stroke-width: 2 }
-}
-ingest_docs -> kendra: "index" {
-  style: { stroke: "#818cf8"; font-color: "#818cf8"; font-size: 11; stroke-width: 2 }
-}
-
-tf_configs -> ingest_tf: "" {
-  style: { stroke: "#f87171"; stroke-width: 2 }
-}
-ingest_tf -> neptune: "load graph" {
-  style: { stroke: "#818cf8"; font-color: "#818cf8"; font-size: 11; stroke-width: 2 }
-}
-
-# ── Legend ────────────────────────────────────────────────────────────────────
-
-legend: {
-  near: bottom-center
-  style: {
-    fill: "#111111"
-    stroke: "#374151"
-    border-radius: 6
-    font-color: "#f9fafb"
-    font-size: 12
-    bold: true
+    sdk_client: "AWS SDK / boto3" {
+      shape: rectangle
+      style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; border-radius: 6; font-size: 12; bold: true }
+    }
   }
 
-  consumer: "Consumer" {
-    shape: rectangle
-    style: { fill: "#f59e0b"; stroke: "#fcd34d"; font-color: "#ffffff"; font-size: 11 }
+  mcp_server: "MCP Server" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    mcp: "MCP Server\nmcp/server.py\nLLM selects tool" {
+      shape: rectangle
+      style: { fill: "#7c3aed"; stroke: "#a78bfa"; font-color: "#f9fafb"; border-radius: 8; font-size: 12; bold: true }
+    }
   }
-  query_hub: "MCP Server (hub)" {
-    shape: rectangle
-    style: { fill: "#7c3aed"; stroke: "#a78bfa"; font-color: "#f9fafb"; font-size: 11 }
+
+  # ── Row 2: Kendra Tools | Neptune Tools ──────────────────────────────────
+
+  kendra_tools: "Kendra Tools" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    search_docs: "search_hashicorp_docs\nkeyword + semantic search\nmetadata filters" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    get_info: "get_index_info\nKendra + Neptune status\ncaller identity" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
   }
-  query_engine: "Query engine" {
-    shape: rectangle
-    style: { fill: "#1d4ed8"; stroke: "#60a5fa"; font-color: "#f9fafb"; font-size: 11 }
+
+  neptune_tools: "Neptune Tools" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    get_deps: "get_resource_dependencies\nupstream / downstream\nmax_depth 1-5" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    find_resources: "find_resources_by_type\nlist by type + repository\nopenCypher MATCH" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
   }
-  store: "Data store" {
-    shape: cylinder
-    style: { fill: "#047857"; stroke: "#34d399"; font-color: "#f9fafb"; font-size: 11 }
+
+  # ── Row 3: Kendra | Neptune ──────────────────────────────────────────────
+
+  kendra_store: "Kendra Store" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    kendra: "Amazon Kendra\nHashiCorp docs, providers\nissues, discuss, blogs" {
+      shape: cylinder
+      style: { fill: "#1a0a2e"; stroke: "#a855f7"; font-color: "#d8b4fe"; font-size: 12; bold: true }
+    }
   }
-  ingest: "Ingest pipeline" {
-    shape: rectangle
-    style: { fill: "#3730a3"; stroke: "#818cf8"; font-color: "#f9fafb"; font-size: 11 }
+
+  neptune_store: "Neptune Store" {
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    neptune: "Amazon Neptune\nTerraform resource DAG\nopenCypher graph" {
+      shape: cylinder
+      style: { fill: "#1a0a2e"; stroke: "#a855f7"; font-color: "#d8b4fe"; font-size: 12; bold: true }
+    }
   }
-  source: "External source" {
-    shape: rectangle
-    style: { fill: "#b91c1c"; stroke: "#f87171"; font-color: "#f9fafb"; font-size: 11 }
+
+  # ── Row 4: Docs Ingestion | Graph Ingestion ──────────────────────────────
+
+  ingest_docs: "Docs Ingestion" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    hashicorp_docs: "HashiCorp Docs\nGitHub repos + feeds" {
+      shape: rectangle
+      style: { fill: "#1c1917"; stroke: "#a78bfa"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    docs_pipeline: "Docs Pipeline\nCodeBuild -> S3 -> Kendra" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    hashicorp_docs -> docs_pipeline: "" {
+      style: { stroke: "#a78bfa"; stroke-width: 2 }
+    }
   }
+
+  ingest_graph: "Graph Ingestion" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    tf_configs: "Terraform Configs\nworkspace repos" {
+      shape: rectangle
+      style: { fill: "#1c1917"; stroke: "#a78bfa"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    graph_pipeline: "Graph Pipeline\nterraform plan -> rover" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    tf_configs -> graph_pipeline: "" {
+      style: { stroke: "#a78bfa"; stroke-width: 2 }
+    }
+  }
+}
+
+# ── Cross-cell connections ─────────────────────────────────────────────────
+
+# Row 1: Consumers -> MCP (left to right, single edge)
+grid.consumers -> grid.mcp_server.mcp: "MCP" {
+  style: { stroke: "#fbbf24"; stroke-width: 2; font-color: "#fbbf24"; font-size: 10 }
+}
+
+# Row 1 -> Row 2: MCP -> tool groups (straight down each column)
+grid.mcp_server.mcp -> grid.kendra_tools.search_docs: "" {
+  style: { stroke: "#a78bfa"; stroke-width: 2 }
+}
+grid.mcp_server.mcp -> grid.kendra_tools.get_info: "" {
+  style: { stroke: "#a78bfa"; stroke-width: 2 }
+}
+grid.mcp_server.mcp -> grid.neptune_tools.get_deps: "" {
+  style: { stroke: "#a78bfa"; stroke-width: 2 }
+}
+grid.mcp_server.mcp -> grid.neptune_tools.find_resources: "" {
+  style: { stroke: "#a78bfa"; stroke-width: 2 }
+}
+
+# Row 2 -> Row 3: Tools -> Stores (straight down same column)
+grid.kendra_tools.search_docs -> grid.kendra_store.kendra: "kendra:query" {
+  style: { stroke: "#34d399"; stroke-width: 2; font-color: "#34d399"; font-size: 10 }
+}
+grid.kendra_tools.get_info -> grid.kendra_store.kendra: "status" {
+  style: { stroke: "#34d399"; stroke-width: 2; stroke-dash: 4; font-color: "#34d399"; font-size: 10 }
+}
+grid.neptune_tools.get_deps -> grid.neptune_store.neptune: "openCypher" {
+  style: { stroke: "#34d399"; stroke-width: 2; font-color: "#34d399"; font-size: 10 }
+}
+grid.neptune_tools.find_resources -> grid.neptune_store.neptune: "openCypher" {
+  style: { stroke: "#34d399"; stroke-width: 2; font-color: "#34d399"; font-size: 10 }
+}
+
+# Row 4 -> Row 3: Ingestion -> Stores (straight up same column)
+grid.ingest_docs.docs_pipeline -> grid.kendra_store.kendra: "index" {
+  style: { stroke: "#a855f7"; stroke-width: 2; font-color: "#a855f7"; font-size: 10 }
+}
+grid.ingest_graph.graph_pipeline -> grid.neptune_store.neptune: "MERGE" {
+  style: { stroke: "#a855f7"; stroke-width: 2; font-color: "#a855f7"; font-size: 10 }
 }

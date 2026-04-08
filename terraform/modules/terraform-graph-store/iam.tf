@@ -29,7 +29,7 @@ resource "aws_iam_role_policy" "codebuild" {
       {
         Effect   = "Allow"
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = ["arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/codebuild/${var.cluster_identifier}-graph-pipeline*"]
+        Resource = ["arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/${var.cluster_identifier}-graph-pipeline*"]
       },
       {
         # Required for CodeBuild running inside a VPC.
@@ -53,7 +53,7 @@ resource "aws_iam_role_policy" "codebuild" {
         Action   = ["ec2:CreateNetworkInterfacePermission"]
         Resource = "*"
         Condition = {
-          StringEquals = { "ec2:Vpc" = "arn:aws:ec2:${var.region}:${var.account_id}:vpc/${var.vpc_id}" }
+          StringEquals = { "ec2:Vpc" = "arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:vpc/${var.vpc_id}" }
         }
       },
       {
@@ -67,12 +67,12 @@ resource "aws_iam_role_policy" "codebuild" {
           "neptune-db:WriteDataViaQuery",
           "neptune-db:DeleteDataViaQuery",
         ]
-        Resource = ["arn:aws:neptune-db:${var.region}:${var.account_id}:${aws_neptune_cluster.main.cluster_resource_id}/*"]
+        Resource = ["arn:aws:neptune-db:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:${aws_neptune_cluster.main.cluster_resource_id}/*"]
       },
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = ["arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:github-token-*"]
+        Resource = ["arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:github-token-*"]
         Condition = {
           StringEquals = { "aws:ResourceTag/Project" = "hashicorp-rag-pipeline" }
         }
@@ -136,7 +136,7 @@ resource "aws_iam_role" "scheduler" {
       Principal = { Service = "scheduler.amazonaws.com" }
       Action    = "sts:AssumeRole"
       Condition = {
-        StringEquals = { "aws:SourceAccount" = var.account_id }
+        StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
       }
     }]
   })

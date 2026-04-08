@@ -22,8 +22,8 @@ terraform/
 │   │   ├── s3.tf                 # RAG docs S3 bucket
 │   │   ├── kendra.tf             # Kendra index + data source
 │   │   ├── locals.tf             # Computed names / IDs
-│   │   ├── data.tf               # AWS data sources (e.g., account caller identity)
-│   │   ├── variables.tf          # Module inputs (account_id, region, force_destroy, tags, …)
+│   │   ├── data.tf               # AWS data sources (aws_region, aws_caller_identity)
+│   │   ├── variables.tf          # Module inputs (force_destroy, tags, …)
 │   │   └── outputs.tf            # kendra_index_id, rag_bucket_name, state_machine_arn, …
 │   ├── terraform-graph-store/    # Neptune + graph pipeline
 │   │   ├── main.tf               # Neptune cluster, instances, subnet/param groups
@@ -31,6 +31,7 @@ terraform/
 │   │   ├── codebuild.tf          # CodeBuild project (VPC-enabled), security groups
 │   │   ├── sfn.tf                # Step Functions state machine, EventBridge scheduler, alarms
 │   │   ├── iam.tf                # CodeBuild, Step Functions, Scheduler roles
+│   │   ├── data.tf               # AWS data sources (aws_region, aws_caller_identity)
 │   │   ├── locals.tf             # Computed names
 │   │   ├── variables.tf          # Module inputs (vpc_id, subnet_ids, repo_uris, …)
 │   │   └── outputs.tf            # Neptune endpoints, state_machine_arn, staging_bucket_name, …
@@ -40,8 +41,7 @@ terraform/
 │       ├── data.tf               # aws_caller_identity
 │       └── outputs.tf            # bucket_name, bucket_arn, backend_config
 ├── main.tf                       # Calls both pipeline modules
-├── data.tf                       # aws_caller_identity (passed to modules as account_id)
-├── variables.tf                  # All root-level inputs
+├── variables.tf                  # All root-level inputs (region for provider; module-specific vars)
 ├── outputs.tf                    # Proxies all module outputs (Neptune outputs null-safe via try())
 └── versions.tf                   # required_version >= 1.10 < 1.15, aws ~> 5.100
 ```
@@ -81,7 +81,7 @@ terraform/
 
 | Component | Role |
 |---|---|
-| **MCP Server** (`mcp/server.py`) | Bridges Claude Code to Kendra via the Model Context Protocol; exposes `search_hashicorp_docs` and `get_index_info` tools |
+| **MCP Server** (`mcp/server.py`) | Bridges Claude Code to Kendra and Neptune via the Model Context Protocol; exposes `search_hashicorp_docs`, `get_resource_dependencies`, `find_resources_by_type`, and `get_index_info` tools |
 | **Amazon Bedrock** | Hosts Claude models for AI inference — used at query time, not ingestion time |
 
 ### Supporting Infrastructure

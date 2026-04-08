@@ -33,7 +33,7 @@ resource "aws_scheduler_schedule" "graph_weekly_refresh" {
       graph_staging_bucket = aws_s3_bucket.graph_staging.id
       neptune_endpoint     = aws_neptune_cluster.main.endpoint
       neptune_port         = aws_neptune_cluster.main.port
-      region               = var.region
+      region               = data.aws_region.current.name
     })
   }
 }

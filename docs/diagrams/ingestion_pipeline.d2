@@ -1,0 +1,189 @@
+vars: {
+  d2-config: {
+    layout-engine: elk
+    theme-id: 200
+  }
+}
+
+direction: down
+
+style: {
+  fill: "#0a0a0f"
+}
+
+grid: "" {
+  grid-rows: 2
+  grid-columns: 2
+  grid-gap: 20
+  style: { fill: "#0a0a0f"; stroke: "#0a0a0f" }
+
+  # ── Top-left: Trigger + Orchestration ────────────────────────────────────
+
+  trigger: "Trigger + Orchestration" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    scheduler: "EventBridge Scheduler\ncron(0 2 ? * SUN *)" {
+      shape: rectangle
+      style: { fill: "#1e1b4b"; stroke: "#818cf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    sfn: "Step Functions\n8-state ASL\nInit -> StartBuild\n-> StartSync -> Validate" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    codebuild: "CodeBuild\nMEDIUM compute\n2hr timeout" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    scheduler -> sfn: "invoke" {
+      style: { stroke: "#818cf8"; stroke-width: 2; font-color: "#818cf8"; font-size: 10 }
+    }
+    sfn -> codebuild: "StartBuild (.sync)" {
+      style: { stroke: "#38bdf8"; stroke-width: 2; font-color: "#38bdf8"; font-size: 10 }
+    }
+  }
+
+  # ── Top-right: Git Clone Track ───────────────────────────────────────────
+
+  git_track: "Git Clone Track" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    clone_repos: "clone_repos.sh\ngit clone --depth 1\nweb-unified-docs\n6 core + 14 providers\n4 sentinel" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    discover: "discover_modules.py\nRegistry API\n?verified=true" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    clone_modules: "clone_modules.sh\nClone verified\nmodules" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    process_docs: "process_docs.py\nSplit at ## / ###\nmerge < 200 char\nMetadata: product\nsource_type, URL" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    discover -> clone_modules: "" {
+      style: { stroke: "#0ea5e9"; stroke-width: 2 }
+    }
+    clone_repos -> process_docs: "" {
+      style: { stroke: "#0ea5e9"; stroke-width: 2 }
+    }
+    clone_modules -> process_docs: "" {
+      style: { stroke: "#0ea5e9"; stroke-width: 2 }
+    }
+  }
+
+  # ── Bottom-left: API Fetch Track ─────────────────────────────────────────
+
+  api_track: "API Fetch Track (parallel)" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    issues: "fetch_github_issues.py\nGitHub REST API\n8-22 repos | <= 365 days\nno PRs | body >= 50 chars" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    discuss: "fetch_discuss.py\nDiscourse JSON API\n9 categories | >= 1 reply\nHTML -> Markdown" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    blogs: "fetch_blogs.py\nAtom + RSS feeds\nhashicorp.com + medium\n<= 365 days | >= 100 chars" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+  }
+
+  # ── Bottom-right: Post-processing + Storage ─────────────────────────────
+
+  post: "Post-processing + Storage" {
+    direction: right
+    style: {
+      fill: "#0d0d18"
+      stroke: "#1e293b"
+      border-radius: 8
+      font-color: "#64748b"
+      font-size: 10
+      bold: true
+    }
+
+    dedup: "deduplicate.py\nSHA-256 hash dedup\nremoves < 100 chars" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    metadata: "generate_metadata.py\n.metadata.json sidecar\nproduct | source_type" {
+      shape: rectangle
+      style: { fill: "#0f172a"; stroke: "#0ea5e9"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    s3: "S3 RAG Bucket\naws s3 sync --delete\nKMS | versioning" {
+      shape: rectangle
+      style: { fill: "#1c1917"; stroke: "#f59e0b"; font-color: "#fcd34d"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    kendra: "Amazon Kendra\nNLP indexing\nkeyword + semantic" {
+      shape: cylinder
+      style: { fill: "#1a0a2e"; stroke: "#a855f7"; font-color: "#d8b4fe"; font-size: 12; bold: true }
+    }
+
+    validate: "ValidateRetrieval\nMap State\n10 kendra:query calls" {
+      shape: rectangle
+      style: { fill: "#172554"; stroke: "#38bdf8"; font-color: "#f9fafb"; border-radius: 6; font-size: 11; bold: true }
+    }
+
+    dedup -> metadata: "" {
+      style: { stroke: "#0ea5e9"; stroke-width: 2 }
+    }
+    metadata -> s3: "upload" {
+      style: { stroke: "#f59e0b"; stroke-width: 2; font-color: "#f59e0b"; font-size: 10 }
+    }
+    s3 -> kendra: "sync" {
+      style: { stroke: "#a855f7"; stroke-width: 2; font-color: "#a855f7"; font-size: 10 }
+    }
+    kendra -> validate: "query" {
+      style: { stroke: "#38bdf8"; stroke-width: 2; font-color: "#38bdf8"; font-size: 10 }
+    }
+  }
+}
+
+# ── Cross-cell connections ─────────────────────────────────────────────────
+
+grid.git_track.process_docs -> grid.post.dedup: "merge" {
+  style: { stroke: "#34d399"; stroke-width: 2; font-color: "#34d399"; font-size: 10 }
+}
+grid.api_track.blogs -> grid.post.dedup: "merge" {
+  style: { stroke: "#34d399"; stroke-width: 2; font-color: "#34d399"; font-size: 10 }
+}

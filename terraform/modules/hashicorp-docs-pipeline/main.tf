@@ -70,7 +70,7 @@ resource "aws_scheduler_schedule" "rag_weekly_refresh" {
       kendra_index_id       = aws_kendra_index.main.id
       kendra_data_source_id = local.kendra_data_source_id
       bucket_name           = aws_s3_bucket.rag_docs.id
-      region                = var.region
+      region                = data.aws_region.current.name
       repo_url              = var.repo_uri
     })
   }

@@ -269,28 +269,11 @@ tasks:
       Runs 10 test queries against the Kendra index and reports result counts
       and confidence levels across all product families and source types.
 
+      KENDRA_INDEX_ID is auto-detected from Terraform output.
+
       Example:
-        task pipeline:test KENDRA_INDEX_ID=ABCDEFGHIJ
+        task pipeline:test
         task pipeline:test KENDRA_INDEX_ID=ABCDEFGHIJ MIN_CONFIDENCE=MEDIUM
-    requires:
-      vars: [KENDRA_INDEX_ID]
-    vars:
-      MIN_CONFIDENCE: '{{.MIN_CONFIDENCE | default "LOW"}}'
-    cmds:
-      - "{{.PYTHON}} scripts/test_retrieval.py --region {{.REGION}} --kendra-index-id {{.KENDRA_INDEX_ID}} --min-confidence {{.MIN_CONFIDENCE}}"
-
-  pipeline:token-efficiency:
-    desc: "Compare RAG retrieval token cost against raw documentation"
-    summary: |
-      Runs cross-product queries and compares token cost of RAG retrieval
-      against pasting full documentation pages.
-
-      KENDRA_INDEX_ID and REGION are auto-detected from Terraform output.
-      Install tiktoken for precise token counts: pip install tiktoken
-
-      Example:
-        task pipeline:token-efficiency
-        task pipeline:token-efficiency KENDRA_INDEX_ID=ABCDEFGHIJ
     deps: [init]
     vars:
       KENDRA_INDEX_ID:
@@ -298,20 +281,80 @@ tasks:
           {{if .KENDRA_INDEX_ID}}echo "{{.KENDRA_INDEX_ID}}"{{else}}
           terraform -chdir={{.TF_DIR}} output -raw kendra_index_id 2>/dev/null || echo ""
           {{end}}
+      MIN_CONFIDENCE: '{{.MIN_CONFIDENCE | default "LOW"}}'
+    cmds:
+      - |
+        if [ -z "{{.KENDRA_INDEX_ID}}" ]; then
+          echo "Error: KENDRA_INDEX_ID could not be detected from Terraform output."
+          echo "Pass it explicitly: task pipeline:test KENDRA_INDEX_ID=<id>"
+          exit 1
+        fi
+        {{.PYTHON}} scripts/test_retrieval.py --region {{.REGION}} --kendra-index-id {{.KENDRA_INDEX_ID}} --min-confidence {{.MIN_CONFIDENCE}}
+
+  pipeline:token-efficiency:
+    desc: "Compare retrieval token cost across Kendra, Neptune, and combined"
+    summary: |
+      Measures token efficiency of different retrieval backends compared to
+      pasting raw documentation or Terraform state files.
+
+      MODE controls which backends to test:
+        kendra   — Kendra RAG only (vs raw documentation)
+        graph    — Neptune graph only (vs raw Terraform state)
+        combined — Both Kendra + Neptune together
+        all      — Runs all three modes (default)
+
+      KENDRA_INDEX_ID, NEPTUNE_ENDPOINT, and REGION are auto-detected from
+      Terraform output. Install tiktoken for precise token counts.
+
+      Example:
+        task pipeline:token-efficiency
+        task pipeline:token-efficiency MODE=kendra
+        task pipeline:token-efficiency MODE=graph
+        task pipeline:token-efficiency MODE=combined
+        task pipeline:token-efficiency MODE=all
+    deps: [init]
+    vars:
+      MODE: '{{.MODE | default "all"}}'
+      KENDRA_INDEX_ID:
+        sh: >
+          {{if .KENDRA_INDEX_ID}}echo "{{.KENDRA_INDEX_ID}}"{{else}}
+          terraform -chdir={{.TF_DIR}} output -raw kendra_index_id 2>/dev/null || echo ""
+          {{end}}
+      NEPTUNE_ENDPOINT:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_cluster_endpoint 2>/dev/null || echo ""'
+      NEPTUNE_PORT:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_port 2>/dev/null || echo "8182"'
       EFFECTIVE_REGION:
         sh: >
           terraform -chdir={{.TF_DIR}} output -raw aws_region 2>/dev/null ||
           echo "{{.REGION}}"
     cmds:
       - |
-        if [ -z "{{.KENDRA_INDEX_ID}}" ]; then
-          echo "Error: KENDRA_INDEX_ID could not be detected from Terraform output."
+        case "{{.MODE}}" in
+          kendra|graph|combined|all) ;;
+          *) echo "Error: MODE must be one of: kendra, graph, combined, all"; exit 1 ;;
+        esac
+        NEEDS_KENDRA=false
+        NEEDS_NEPTUNE=false
+        case "{{.MODE}}" in
+          kendra|combined|all) NEEDS_KENDRA=true ;;&
+          graph|combined|all)  NEEDS_NEPTUNE=true ;;
+        esac
+        if [ "$NEEDS_KENDRA" = "true" ] && [ -z "{{.KENDRA_INDEX_ID}}" ]; then
+          echo "Error: KENDRA_INDEX_ID required for mode '{{.MODE}}' but not found in Terraform output."
           echo "Pass it explicitly: task pipeline:token-efficiency KENDRA_INDEX_ID=<id>"
           exit 1
         fi
+        if [ "$NEEDS_NEPTUNE" = "true" ] && [ -z "{{.NEPTUNE_ENDPOINT}}" ]; then
+          echo "Error: NEPTUNE_ENDPOINT required for mode '{{.MODE}}' but Neptune is not deployed."
+          echo "Deploy Neptune (create_neptune=true) or use MODE=kendra."
+          exit 1
+        fi
         {{.PYTHON}} scripts/test_token_efficiency.py \
-          --region          {{.EFFECTIVE_REGION}} \
-          --kendra-index-id {{.KENDRA_INDEX_ID}}
+          --region            {{.EFFECTIVE_REGION}} \
+          --mode              {{.MODE}} \
+          {{if .KENDRA_INDEX_ID}}--kendra-index-id  {{.KENDRA_INDEX_ID}}{{end}} \
+          {{if .NEPTUNE_ENDPOINT}}--neptune-endpoint {{.NEPTUNE_ENDPOINT}} --neptune-port {{.NEPTUNE_PORT}}{{end}}
 
   pipeline:status:
     desc: "Show the last 5 docs pipeline executions"
@@ -610,34 +653,76 @@ tasks:
       Writes the hashicorp-rag mcpServers entry into .claude/settings.local.json
       so Claude Code starts the MCP server automatically on open.
 
-      After running, restart Claude Code — search_hashicorp_docs and
-      get_index_info tools will be available automatically.
+      KENDRA_INDEX_ID and NEPTUNE_ENDPOINT are auto-detected from Terraform
+      output. Override with explicit values if needed.
+
+      After running, restart Claude Code — all MCP tools will be available:
+      search_hashicorp_docs, get_resource_dependencies, find_resources_by_type,
+      get_index_info.
 
       Example:
+        task mcp:setup
         task mcp:setup KENDRA_INDEX_ID=ABCDEFGHIJ
-    requires:
-      vars: [KENDRA_INDEX_ID]
+    deps: [init]
+    vars:
+      KENDRA_INDEX_ID:
+        sh: >
+          {{if .KENDRA_INDEX_ID}}echo "{{.KENDRA_INDEX_ID}}"{{else}}
+          terraform -chdir={{.TF_DIR}} output -raw kendra_index_id 2>/dev/null || echo ""
+          {{end}}
+      NEPTUNE_ENDPOINT:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_cluster_endpoint 2>/dev/null || echo ""'
+      NEPTUNE_PORT:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_port 2>/dev/null || echo "8182"'
     cmds:
       - |
+        if [ -z "{{.KENDRA_INDEX_ID}}" ]; then
+          echo "Error: KENDRA_INDEX_ID could not be detected from Terraform output."
+          echo "Pass it explicitly: task mcp:setup KENDRA_INDEX_ID=<id>"
+          exit 1
+        fi
         scripts/setup_mcp.sh \
           --region          {{.REGION}} \
-          --kendra-index-id {{.KENDRA_INDEX_ID}}
+          --kendra-index-id {{.KENDRA_INDEX_ID}} \
+          {{if .NEPTUNE_ENDPOINT}}--neptune-endpoint {{.NEPTUNE_ENDPOINT}} --neptune-port {{.NEPTUNE_PORT}}{{end}}
 
   mcp:test:
-    desc: "Smoke-test the MCP server tools against the live Kendra index"
+    desc: "Smoke-test the MCP server tools against the live Kendra and Neptune indexes"
     summary: |
       Calls MCP server tool functions directly to confirm credentials,
       environment, and retrieval are all working.
 
+      KENDRA_INDEX_ID and NEPTUNE_ENDPOINT are auto-detected from Terraform
+      output. Neptune tests run only when NEPTUNE_ENDPOINT is available.
+
       Example:
+        task mcp:test
         task mcp:test KENDRA_INDEX_ID=ABCDEFGHIJ
-    requires:
-      vars: [KENDRA_INDEX_ID]
+    deps: [init]
+    vars:
+      KENDRA_INDEX_ID:
+        sh: >
+          {{if .KENDRA_INDEX_ID}}echo "{{.KENDRA_INDEX_ID}}"{{else}}
+          terraform -chdir={{.TF_DIR}} output -raw kendra_index_id 2>/dev/null || echo ""
+          {{end}}
+      NEPTUNE_ENDPOINT:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_cluster_endpoint 2>/dev/null || echo ""'
+      NEPTUNE_PORT:
+        sh: 'terraform -chdir={{.TF_DIR}} output -raw neptune_port 2>/dev/null || echo "8182"'
     env:
       AWS_REGION: "{{.REGION}}"
       AWS_KENDRA_INDEX_ID: "{{.KENDRA_INDEX_ID}}"
+      NEPTUNE_ENDPOINT: "{{.NEPTUNE_ENDPOINT}}"
+      NEPTUNE_PORT: "{{.NEPTUNE_PORT}}"
+      NEPTUNE_IAM_AUTH: "true"
     cmds:
-      - "{{.PYTHON}} mcp/test_server.py"
+      - |
+        if [ -z "{{.KENDRA_INDEX_ID}}" ]; then
+          echo "Error: KENDRA_INDEX_ID could not be detected from Terraform output."
+          echo "Pass it explicitly: task mcp:test KENDRA_INDEX_ID=<id>"
+          exit 1
+        fi
+        {{.PYTHON}} mcp/test_server.py
 
   # ── CI helpers ──────────────────────────────────────────────────────────────
 

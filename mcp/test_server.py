@@ -8,6 +8,11 @@ Requires environment variables:
   AWS_REGION          — AWS region
   AWS_KENDRA_INDEX_ID — Kendra index ID
 
+Optional environment variables (for Neptune tests):
+  NEPTUNE_ENDPOINT    — Neptune cluster endpoint
+  NEPTUNE_PORT        — Neptune port (default 8182)
+  NEPTUNE_IAM_AUTH    — Enable SigV4 auth (default "true")
+
 Usage:
     python3 mcp/test_server.py
 """
@@ -37,9 +42,13 @@ def main() -> None:
     if not _check_env():
         sys.exit(1)
 
-    from server import get_index_info, search_hashicorp_docs
+    from server import (
+        get_index_info,
+        search_hashicorp_docs,
+    )
 
     failures = 0
+    neptune_available = bool(os.environ.get("NEPTUNE_ENDPOINT"))
 
     # ── Test 1: get_index_info ────────────────────────────────────────────────
     log.info("Test 1: get_index_info")
@@ -48,8 +57,9 @@ def main() -> None:
         log.error("FAIL: %s", info)
         failures += 1
     else:
-        log.info("PASS: region=%s index_id=%s status=%s",
-                 info.get("region"), info.get("kendra_index_id"), info.get("index_status", "n/a"))
+        log.info("PASS: region=%s index_id=%s status=%s neptune=%s",
+                 info.get("region"), info.get("kendra_index_id"),
+                 info.get("index_status", "n/a"), info.get("neptune_status", "n/a"))
 
     # ── Test 2: basic search ──────────────────────────────────────────────────
     log.info("Test 2: search_hashicorp_docs (basic)")
@@ -80,6 +90,32 @@ def main() -> None:
         failures += 1
     else:
         log.info("PASS: %d results (expected 0 for nonsense+high threshold)", len(results))
+
+    # ── Neptune tests (conditional) ───────────────────────────────────────────
+    if neptune_available:
+        from server import find_resources_by_type, get_resource_dependencies
+
+        # Test 5: find_resources_by_type
+        log.info("Test 5: find_resources_by_type (aws_iam_role)")
+        results = find_resources_by_type(resource_type="aws_iam_role")
+        if results and "error" in results[0]:
+            log.error("FAIL: Neptune query error: %s", results[0]["error"])
+            failures += 1
+        else:
+            log.info("PASS: %d resources found (0 is ok if graph is empty)", len(results))
+
+        # Test 6: get_resource_dependencies
+        log.info("Test 6: get_resource_dependencies (aws_iam_role, test, both)")
+        results = get_resource_dependencies(
+            resource_type="aws_iam_role", resource_name="test", direction="both", max_depth=1
+        )
+        if results and "error" in results[0]:
+            log.error("FAIL: Neptune dependency query error: %s", results[0]["error"])
+            failures += 1
+        else:
+            log.info("PASS: %d dependencies found (0 is ok if resource doesn't exist)", len(results))
+    else:
+        log.info("SKIP: Neptune tests (NEPTUNE_ENDPOINT not set)")
 
     if failures > 0:
         log.error("%d test(s) failed", failures)
