@@ -69,7 +69,7 @@ Step Functions (8 states):
 .
 ├── Taskfile.yml
 ├── AGENTS.md
-├── PROMPT.md                     # This file — implementation reference
+├── PROMPT.md                        # This file — implementation reference
 ├── README.md
 ├── .gitignore
 ├── .github/workflows/terraform.yml
@@ -78,12 +78,48 @@ Step Functions (8 states):
 │   ├── MCP_SERVER.md
 │   ├── RUNBOOK.md
 │   └── diagrams/
+│       ├── architecture.d2
 │       ├── architecture.svg
-│       └── ingestion_pipeline.svg
+│       ├── ingestion_pipeline.d2
+│       ├── ingestion_pipeline.svg
+│       ├── unified-data-layer.d2
+│       └── unified-data-layer.svg
 ├── terraform/
-│   ├── versions.tf
-│   ├── variables.tf
+│   ├── bootstrap/                   # Separate root module — creates remote state bucket (local backend)
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   ├── versions.tf
+│   │   └── outputs.tf
+│   ├── modules/
+│   │   ├── hashicorp-docs-pipeline/ # Kendra + ingestion pipeline
+│   │   │   ├── main.tf
+│   │   │   ├── iam.tf
+│   │   │   ├── s3.tf
+│   │   │   ├── kendra.tf
+│   │   │   ├── locals.tf
+│   │   │   ├── data.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── terraform-graph-store/   # Neptune + graph pipeline
+│   │   │   ├── main.tf
+│   │   │   ├── iam.tf
+│   │   │   ├── s3.tf
+│   │   │   ├── codebuild.tf
+│   │   │   ├── sfn.tf
+│   │   │   ├── lambda.tf
+│   │   │   ├── nat.tf
+│   │   │   ├── locals.tf
+│   │   │   ├── data.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   └── state-backend/           # KMS-encrypted S3 state bucket
+│   │       ├── main.tf
+│   │       ├── locals.tf
+│   │       ├── data.tf
+│   │       └── outputs.tf
 │   ├── main.tf
+│   ├── variables.tf
+│   ├── versions.tf
 │   ├── outputs.tf
 │   └── terraform.tfvars.example
 ├── mcp/
@@ -91,9 +127,11 @@ Step Functions (8 states):
 │   ├── test_server.py
 │   └── requirements.txt
 ├── step-functions/
-│   └── rag_pipeline.asl.json
+│   ├── rag_pipeline.asl.json
+│   └── graph_pipeline.asl.json
 ├── codebuild/
 │   ├── buildspec.yml
+│   ├── buildspec_graph.yml
 │   └── scripts/
 │       ├── clone_repos.sh
 │       ├── discover_modules.py
@@ -104,18 +142,25 @@ Step Functions (8 states):
 │       ├── fetch_blogs.py
 │       ├── deduplicate.py
 │       ├── generate_metadata.py
+│       ├── ingest_graph.py
 │       ├── requirements.txt         # pyyaml, requests, pytest, beautifulsoup4, lxml
+│       ├── requirements_graph.txt
 │       └── tests/
 │           ├── test_process_docs.py
 │           ├── test_fetch_github_issues.py
 │           └── test_deduplicate.py
 └── scripts/
-    ├── deploy.sh
     ├── bootstrap_state.sh
+    ├── deploy.sh
+    ├── preflight.sh
+    ├── resolve_tf_outputs.sh
+    ├── run_graph_pipeline.sh
     ├── run_pipeline.sh
     ├── setup_claude_bedrock.sh
     ├── setup_mcp.sh
-    └── test_retrieval.py
+    ├── test_graph.sh
+    ├── test_retrieval.py
+    └── test_token_efficiency.py
 ```
 
 ---
@@ -126,11 +171,11 @@ Step Functions (8 states):
 
 | Variable | Default | Description |
 |---|---|---|
-| `region` | `us-west-2` | AWS region |
+| `region` | `us-east-1` | AWS region |
 | `repo_uri` | (required) | GitHub HTTPS URL for the repository |
 | `kendra_edition` | `ENTERPRISE_EDITION` | `DEVELOPER_EDITION` (10k docs, ~$810/mo) or `ENTERPRISE_EDITION` (~$1,400/mo, 100k docs/SCU) |
 | `refresh_schedule` | `cron(0 2 ? * SUN *)` | EventBridge cron expression (UTC) |
-| `scheduler_timezone` | `"UTC"` | Timezone for the schedule |
+| `scheduler_timezone` | `"Europe/London"` | Timezone for the schedule |
 | `notification_email` | `""` | Email for CloudWatch alarms (empty = disabled) |
 | `create_github_oidc_provider` | `false` | Create OIDC provider resource for GitHub Actions |
 

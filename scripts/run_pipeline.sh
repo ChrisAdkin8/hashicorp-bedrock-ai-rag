@@ -60,15 +60,21 @@ if [[ -z "${SFN_REGION}" ]]; then
 fi
 echo "Step Functions region: ${SFN_REGION}"
 
-INPUT_JSON=$(python3 -c "
-import json
+INPUT_JSON=$(KENDRA_INDEX_ID="${KENDRA_INDEX_ID}" \
+  KENDRA_DS_ID="${KENDRA_DS_ID}" \
+  BUCKET_NAME="${BUCKET_NAME}" \
+  REPO_URL="${REPO_URL}" \
+  SFN_REGION="${SFN_REGION}" \
+  TARGET="${TARGET}" \
+  python3 -c "
+import json, os
 print(json.dumps({
-  'kendra_index_id':       '${KENDRA_INDEX_ID}',
-  'kendra_data_source_id': '${KENDRA_DS_ID}',
-  'bucket_name':           '${BUCKET_NAME}',
-  'repo_url':              '${REPO_URL}',
-  'region':                '${SFN_REGION}',
-  'pipeline_target':       '${TARGET}',
+  'kendra_index_id':       os.environ['KENDRA_INDEX_ID'],
+  'kendra_data_source_id': os.environ['KENDRA_DS_ID'],
+  'bucket_name':           os.environ['BUCKET_NAME'],
+  'repo_url':              os.environ['REPO_URL'],
+  'region':                os.environ['SFN_REGION'],
+  'pipeline_target':       os.environ['TARGET'],
 }))
 ")
 

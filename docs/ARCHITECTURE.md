@@ -31,7 +31,7 @@ terraform/
 │   │   ├── codebuild.tf          # CodeBuild project (VPC-enabled), security groups
 │   │   ├── sfn.tf                # Step Functions state machine, EventBridge scheduler, alarms
 │   │   ├── lambda.tf             # Neptune proxy: Lambda + API Gateway + IAM + SGs (opt-in)
-│   │   ├── lambda/neptune_proxy.py  # Lambda handler — SigV4-signs and forwards openCypher to Neptune
+│   │   ├── nat.tf                # Optional NAT gateway for VPC-attached CodeBuild internet access
 │   │   ├── iam.tf                # CodeBuild, Step Functions, Scheduler roles
 │   │   ├── data.tf               # AWS data sources (aws_region, aws_caller_identity)
 │   │   ├── locals.tf             # Computed names
@@ -222,7 +222,7 @@ Both feeds include full article HTML inline:
 | Setting | Value |
 |---|---|
 | Edition | `ENTERPRISE_EDITION` (100,000 docs per SCU; 10,000 queries/day included) |
-| Data source type | S3 (via `template_configuration` — enables `inclusionPatterns` on `.md` files without excluding `.metadata.json` sidecars) |
+| Data source type | S3 (via `s3_configuration` with `inclusion_patterns = ["**/*.md"]` — includes `.metadata.json` sidecars automatically) |
 | Sync schedule | On-demand (triggered by Step Functions after each CodeBuild run) |
 | Custom attributes | `product` (STRING), `product_family` (STRING), `source_type` (STRING) |
 

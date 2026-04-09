@@ -53,7 +53,7 @@ resource "aws_kendra_data_source" "s3" {
   configuration {
     s3_configuration {
       bucket_name        = aws_s3_bucket.rag_docs.id
-      inclusion_patterns = ["*.md"]
+      inclusion_patterns = ["**/*.md"]
     }
   }
 }

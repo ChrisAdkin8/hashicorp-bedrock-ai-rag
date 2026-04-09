@@ -205,6 +205,8 @@ The graph pipeline runs `terraform plan -out=tfplan` in each workspace repo, ext
 | `graph_repo_uris` | `[]` | GitHub HTTPS URLs of Terraform workspace repos to ingest into Neptune |
 | `graph_refresh_schedule` | `cron(0 3 ? * SUN *)` | EventBridge cron for the graph pipeline (UTC) |
 | `graph_codebuild_compute_type` | `BUILD_GENERAL1_MEDIUM` | CodeBuild compute type for graph pipeline |
+| `neptune_create_nat_gateway` | `false` | Create a NAT gateway so VPC-attached CodeBuild can reach the internet |
+| `neptune_codebuild_subnet_cidr` | `172.31.64.0/24` | CIDR for the private CodeBuild subnet created when `neptune_create_nat_gateway = true` |
 | `neptune_create_proxy` | `false` | Create an API Gateway + Lambda proxy for Neptune queries from outside the VPC |
 
 ---
@@ -309,8 +311,16 @@ print(response["output"]["message"]["content"][0]["text"])
 | `task destroy` | Destroy all Terraform-managed infrastructure |
 | `task login` | Verify AWS credentials |
 | `task bootstrap` | Create/verify remote state S3 bucket |
+| `task init` | Initialise Terraform (auto-detects state bucket) |
+| `task init:upgrade` | Re-initialise Terraform with `-upgrade` (refresh providers/modules) |
+| `task fmt` | Format all Terraform files |
+| `task fmt:check` | Check Terraform formatting (CI-friendly, no writes) |
+| `task validate` | Validate Terraform configuration |
 | `task plan` | `terraform plan` (saves plan to `tfplan`) |
 | `task apply` | Interactive `terraform apply` (plan + confirm) |
+| `task output` | Print all Terraform outputs |
+| `task oidc:import` | Import an existing GitHub OIDC provider into Terraform state |
+| `task preflight` | Run all preflight checks (tools, auth, packages, files, Terraform) |
 | `task docs:run` | Trigger a docs pipeline run and wait for completion |
 | `task docs:test` | Run retrieval validation queries against Kendra |
 | `task docs:status` | List last 5 docs pipeline executions |
@@ -322,6 +332,9 @@ print(response["output"]["message"]["content"][0]["text"])
 | `task mcp:setup` | Register MCP server with Claude Code |
 | `task mcp:test` | Smoke-test MCP server connectivity |
 | `task claude:setup` | Configure Claude Code to use Amazon Bedrock |
+| `task ci` | Run all CI checks (fmt + validate + shellcheck + tests) |
+| `task shellcheck` | Lint all shell scripts |
+| `task test` | Run Python unit tests |
 
 ---
 

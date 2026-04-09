@@ -75,7 +75,7 @@ This repository provisions a high-precision Amazon Kendra RAG pipeline for the H
 
 * **Neptune proxy is opt-in**: Set `neptune_create_proxy = true` to deploy an API Gateway + Lambda proxy for Neptune access from outside the VPC. The MCP server uses `NEPTUNE_PROXY_URL` to route through the proxy instead of connecting directly.
 
-* **`template_configuration` not `s3_configuration`**: The Kendra S3 data source uses `template_configuration` with `inclusionPatterns = ["**/*.md"]`. Using `exclusion_patterns` blocks `.metadata.json` sidecars from sync participation and causes `"invalid metadata"` errors. Using `inclusion_patterns` avoids this.
+* **`s3_configuration` with `inclusion_patterns`**: The Kendra S3 data source uses `s3_configuration` with `inclusion_patterns = ["**/*.md"]`. Do not use `exclusion_patterns` — it blocks `.metadata.json` sidecars from sync participation and causes `"invalid metadata"` errors. Do not use `template_configuration` — it is invalid for S3 type and fails with `S3ConnectorConfiguration` error.
 
 ---
 
@@ -97,7 +97,7 @@ This repository provisions a high-precision Amazon Kendra RAG pipeline for the H
 
 | Issue | Fix |
 | :--- | :--- |
-| Kendra metadata `"invalid metadata"` errors | Use `s3_configuration` with `inclusion_patterns = ["*.md"]`, not `exclusion_patterns = ["*.metadata.json"]`. `template_configuration` is invalid for S3 type and fails with `S3ConnectorConfiguration` error — see `kendra.tf` |
+| Kendra metadata `"invalid metadata"` errors | Use `s3_configuration` with `inclusion_patterns = ["**/*.md"]`, not `exclusion_patterns`. Do not use `template_configuration` — it is invalid for S3 type. See `kendra.tf` |
 | `DocumentId` validation failure | Omit `DocumentId` entirely — Kendra auto-assigns from the S3 object key |
 | `_source_uri` validation failure | Omit `_source_uri` — Kendra requires HTTP/HTTPS; only `s3://` is available at ingestion time |
 | Blog posts not fetched (0 files) | `hashicorp.com` is Cloudflare-protected — extract inline content from `<content>` (Atom) / `<content:encoded>` (RSS) tags |

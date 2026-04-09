@@ -18,7 +18,7 @@ data "archive_file" "neptune_proxy" {
 resource "aws_security_group" "lambda_proxy" {
   count       = var.create_neptune_proxy ? 1 : 0
   name        = "${var.cluster_identifier}-lambda-proxy-sg"
-  description = "Lambda Neptune proxy — egress to Neptune and AWS APIs"
+  description = "Lambda Neptune proxy - egress to Neptune and AWS APIs"
   vpc_id      = var.vpc_id
 
   egress {
@@ -129,7 +129,6 @@ resource "aws_lambda_function" "neptune_proxy" {
     variables = {
       NEPTUNE_ENDPOINT = aws_neptune_cluster.main.endpoint
       NEPTUNE_PORT     = tostring(aws_neptune_cluster.main.port)
-      AWS_REGION       = data.aws_region.current.name
     }
   }
 

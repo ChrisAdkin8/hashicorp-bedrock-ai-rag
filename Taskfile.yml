@@ -231,13 +231,22 @@ tasks:
           kendra|graph|combined|all) ;;
           *) echo "Error: MODE must be one of: kendra, graph, combined, all"; exit 1 ;;
         esac
-        case "$MODE" in
-          kendra|combined|all) [ -z "$KENDRA_INDEX_ID" ] && { echo "Error: KENDRA_INDEX_ID required for mode '$MODE'."; exit 1; } ;;&
-          graph|combined|all)  [ -z "$NEPTUNE_ENDPOINT" ] && { echo "Error: NEPTUNE_ENDPOINT required for mode '$MODE'. Deploy Neptune or use MODE=kendra."; exit 1; } ;;
-        esac
+        if [ "$MODE" = "kendra" ] || [ "$MODE" = "combined" ] || [ "$MODE" = "all" ]; then
+          if [ -z "$KENDRA_INDEX_ID" ]; then
+            echo "Error: KENDRA_INDEX_ID required for mode '$MODE'."
+            exit 1
+          fi
+        fi
+        if [ "$MODE" = "graph" ] || [ "$MODE" = "combined" ] || [ "$MODE" = "all" ]; then
+          if [ -z "$NEPTUNE_ENDPOINT" ] && [ -z "$NEPTUNE_PROXY_URL" ]; then
+            echo "Error: NEPTUNE_ENDPOINT or NEPTUNE_PROXY_URL required for mode '$MODE'. Deploy Neptune or use MODE=kendra."
+            exit 1
+          fi
+        fi
         ARGS="--region $REGION --mode $MODE"
-        [ -n "$KENDRA_INDEX_ID" ]  && ARGS="$ARGS --kendra-index-id $KENDRA_INDEX_ID"
-        [ -n "$NEPTUNE_ENDPOINT" ] && ARGS="$ARGS --neptune-endpoint $NEPTUNE_ENDPOINT --neptune-port $NEPTUNE_PORT"
+        if [ -n "$KENDRA_INDEX_ID" ]; then ARGS="$ARGS --kendra-index-id $KENDRA_INDEX_ID"; fi
+        if [ -n "$NEPTUNE_ENDPOINT" ]; then ARGS="$ARGS --neptune-endpoint $NEPTUNE_ENDPOINT --neptune-port $NEPTUNE_PORT"; fi
+        if [ -n "$NEPTUNE_PROXY_URL" ]; then ARGS="$ARGS --neptune-proxy-url $NEPTUNE_PROXY_URL"; fi
         {{.PYTHON}} scripts/test_token_efficiency.py $ARGS
 
   # ── MCP server ─────────────────────────────────────────────────────────────
