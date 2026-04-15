@@ -61,7 +61,7 @@ Step Functions (orchestrator)
 
 | Component | Role |
 |---|---|
-| **MCP Server** (`mcp/server.py`) | Bridges Claude Code to Kendra and Neptune via the Model Context Protocol; exposes `search_hashicorp_docs`, `get_resource_dependencies`, `find_resources_by_type`, and `get_index_info` tools |
+| **MCP Server** (`mcp/server.py`) | Bridges Claude Code to Kendra and Neptune via the Model Context Protocol; exposes `search_hashicorp_docs`, `get_index_info`, `get_resource_dependencies`, `find_resources_by_type`, and `get_graph_info` tools |
 | **Neptune Proxy** (API Gateway + Lambda) | Optional (`create_neptune_proxy = true`). HTTP API with IAM auth fronting a VPC Lambda that SigV4-signs and forwards openCypher queries to Neptune. Allows the MCP server to reach Neptune from outside the VPC without tunnels. |
 | **Amazon Bedrock** | Hosts Claude models for AI inference — used at query time, not ingestion time |
 

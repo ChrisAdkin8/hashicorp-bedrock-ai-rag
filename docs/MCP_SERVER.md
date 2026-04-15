@@ -17,9 +17,10 @@ without any manual copy-paste.
 - [Registering with Claude Code](#registering-with-claude-code)
 - [Tool Reference](#tool-reference)
   - [search\_hashicorp\_docs](#search_hashicorp_docs)
+  - [get\_index\_info](#get_index_info)
   - [get\_resource\_dependencies](#get_resource_dependencies)
   - [find\_resources\_by\_type](#find_resources_by_type)
-  - [get\_index\_info](#get_index_info)
+  - [get\_graph\_info](#get_graph_info)
 - [Testing](#testing)
 - [Manual Usage (without Claude Code)](#manual-usage-without-claude-code)
 - [Troubleshooting](#troubleshooting)
@@ -137,8 +138,9 @@ task mcp:setup
 ```
 
 After the task completes, **restart Claude Code**. The tools
-`search_hashicorp_docs`, `get_resource_dependencies`, `find_resources_by_type`,
-and `get_index_info` will appear in the tool list immediately.
+`search_hashicorp_docs`, `get_index_info`, `get_resource_dependencies`,
+`find_resources_by_type`, and `get_graph_info` will appear in the tool list
+immediately.
 
 ### What the task writes
 
@@ -180,15 +182,16 @@ Then restart Claude Code.
 ### search\_hashicorp\_docs
 
 Search the HashiCorp documentation index for relevant results using Kendra
-keyword and semantic search.
+keyword and semantic search, with URI and content deduplication.
 
 **Input schema**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | string | yes | — | Natural language question or topic. |
-| `top_k` | integer | no | `5` | Number of results to return. Range: 1-20. |
+| `top_k` | integer | no | `3` | Number of results to return. Range: 1-20. |
 | `min_score` | float | no | `0.0` | Minimum confidence score. Range: 0.0-1.0. |
+| `product` | string | no | — | Filter by product name (see below). |
 | `product_family` | string | no | — | Filter by product family (see below). |
 | `source_type` | string | no | — | Filter by document source type (see below). |
 
@@ -201,6 +204,18 @@ keyword and semantic search.
 | `0.50` | MEDIUM |
 | `0.25` | LOW |
 | `0.00` | NOT_AVAILABLE (accept all) |
+
+**product values**
+
+| Value | Covers |
+|---|---|
+| `aws` | AWS Terraform provider |
+| `vault` | HashiCorp Vault |
+| `consul` | HashiCorp Consul |
+| `nomad` | HashiCorp Nomad |
+| `packer` | HashiCorp Packer |
+| `terraform` | Terraform CLI and core |
+| `boundary` | HashiCorp Boundary |
 
 **product\_family values**
 
@@ -225,36 +240,29 @@ keyword and semantic search.
 | `discuss` | HashiCorp Discuss forum threads |
 | `blog` | HashiCorp blog posts |
 
-**How Kendra metadata filtering works**
+**How metadata filtering works**
 
 Kendra indexes custom attributes from the `.metadata.json` sidecar files
-alongside each document. The `search_hashicorp_docs` tool pushes filters down
-to Kendra at query time using `AttributeFilter`:
+alongside each document. The `product_family` and `source_type` filters are
+pushed down to Kendra at query time using `AttributeFilter`. The `product`
+filter uses a combination of Kendra document attributes and URI path inference.
 
-```python
-# Single filter
-params["AttributeFilter"] = {
-    "EqualsTo": {"Key": "product_family", "Value": {"StringValue": "vault"}}
-}
+When any metadata filters are active, the tool over-fetches (3x `top_k`)
+to ensure enough candidates survive post-retrieval filtering.
 
-# Combined filters
-params["AttributeFilter"] = {
-    "AndAllFilters": [
-        {"EqualsTo": {"Key": "product_family", "Value": {"StringValue": "terraform"}}},
-        {"EqualsTo": {"Key": "source_type",    "Value": {"StringValue": "provider"}}},
-    ]
-}
-```
+**Deduplication**
 
-This is more efficient than post-filtering: Kendra scores and ranks only within
-the matching document set.
+Results are deduplicated in two stages:
+
+1. **URI dedup** — keeps only the highest-scoring chunk per source URI
+2. **Content dedup** — drops chunks with near-identical content from different
+   source URIs using a SHA-256 fingerprint of normalised text
 
 **Output format**
 
-Each result is a dict with `text`, `score`, `confidence`, `source_uri`,
-`product`, `product_family`, `source_type`. Kendra returns custom metadata
-attributes directly from the `.metadata.json` sidecar files written during
-ingestion — no path inference needed.
+Formatted string containing numbered results with source URI, confidence level,
+score, and document text. Metadata headers injected by `process_docs.py` are
+stripped to avoid wasting tokens on redundant information.
 
 **Example calls**
 
@@ -268,11 +276,41 @@ search_hashicorp_docs("Vault dynamic secrets", top_k=10)
 # Filter to Vault documentation only
 search_hashicorp_docs("Enable PKI secrets engine", product_family="vault", source_type="documentation")
 
-# Filter to GitHub issues about Consul
-search_hashicorp_docs("Consul service discovery failing", product_family="consul", source_type="issue")
+# Filter by specific product
+search_hashicorp_docs("S3 bucket policy", product="aws")
 
 # High-confidence results only
 search_hashicorp_docs("S3 bucket policy", min_score=0.75)
+```
+
+---
+
+### get\_index\_info
+
+Return configuration details of the active Kendra RAG index, including
+available metadata filters and default retrieval settings.
+
+**Output example**
+
+```
+Kendra RAG Index
+========================================
+Region:        us-east-1
+Index ID:      a1b2c3d4-...
+Account:       123456789012
+Caller ARN:    arn:aws:iam::123456789012:user/dev
+Index name:    hashicorp-rag
+Index status:  ACTIVE
+Edition:       ENTERPRISE_EDITION
+
+Metadata filters available in search_hashicorp_docs:
+  product:        aws | vault | consul | nomad | packer | terraform | boundary
+  product_family: terraform | vault | consul | nomad | packer | boundary | sentinel
+  source_type:    provider | documentation | module | sentinel | issue | discuss | blog
+
+Default retrieval settings:
+  top_k:     3  (range 1-20)
+  min_score: 0.0  (range 0.0-1.0; higher = stricter)
 ```
 
 ---
@@ -291,6 +329,7 @@ that a given resource depends on (downstream), resources that depend on it
 | `resource_name` | string | yes | — | Terraform resource name (e.g. `processor`). |
 | `direction` | string | no | `"both"` | `"downstream"` (what this depends on), `"upstream"` (what depends on this), or `"both"`. |
 | `max_depth` | integer | no | `2` | Maximum traversal depth. Range: 1-5. |
+| `repository` | string | no | — | Optional — restrict traversal to a single repository (GitHub HTTPS URL or repo name). |
 
 **How Neptune graph queries work**
 
@@ -307,7 +346,8 @@ to walk the graph up to the specified depth.
 
 **Output format**
 
-List of dicts with `resource_id`, `type`, `name`, `direction`, `repository`.
+Formatted string with "Downstream (depends on)" and "Upstream (depended on by)"
+sections, each listing the matching resources with their type and repository.
 
 **Example calls**
 
@@ -320,13 +360,16 @@ get_resource_dependencies("aws_lambda_function", "processor", direction="downstr
 
 # Deep traversal (up to 5 hops)
 get_resource_dependencies("aws_s3_bucket", "data", direction="both", max_depth=5)
+
+# Restrict to a specific repository
+get_resource_dependencies("aws_iam_role", "lambda_exec", repository="my-org/my-repo")
 ```
 
 ---
 
 ### find\_resources\_by\_type
 
-List all Terraform resources of a given type from the Neptune graph.
+List Terraform resources of a given type from the Neptune graph.
 
 **Input schema**
 
@@ -334,10 +377,11 @@ List all Terraform resources of a given type from the Neptune graph.
 |---|---|---|---|---|
 | `resource_type` | string | yes | — | Terraform resource type (e.g. `aws_s3_bucket`, `aws_iam_role`). |
 | `repository` | string | no | — | Filter by repository (GitHub HTTPS URL or repo name). |
+| `limit` | integer | no | `50` | Maximum rows to return. Range: 1-500. |
 
 **Output format**
 
-List of dicts with `resource_id`, `type`, `name`, `repository`.
+Formatted string listing matching resources with their name and repository.
 
 **Example calls**
 
@@ -347,33 +391,38 @@ find_resources_by_type("aws_s3_bucket")
 
 # IAM roles in a specific repo
 find_resources_by_type("aws_iam_role", repository="my-org/my-repo")
+
+# Limit to first 10 results
+find_resources_by_type("aws_security_group", limit=10)
 ```
 
 ---
 
-### get\_index\_info
+### get\_graph\_info
 
-Return configuration and status details for diagnostics. Takes no arguments.
+Return configuration and basic counts for the Neptune graph store.
 
 **Output example**
 
 ```
-{
-  "region": "us-east-1",
-  "kendra_index_id": "a1b2c3d4-...",
-  "index_edition": "ENTERPRISE_EDITION",
-  "index_status": "ACTIVE",
-  "caller_identity": "arn:aws:iam::123456789012:user/dev",
-  "neptune_endpoint": "my-cluster.cluster-abc.us-east-1.neptune.amazonaws.com",
-  "neptune_port": 8182,
-  "neptune_iam_auth": true,
-  "neptune_status": "ok",
-  "neptune_node_counts": {"Repository": 5, "Resource": 142}
-}
+Neptune Graph (openCypher)
+========================================
+Region:     us-east-1
+Endpoint:   my-cluster.cluster-abc.us-east-1.neptune.amazonaws.com:8182
+IAM auth:   True
+Nodes:      147 total
+  Resource: 142
+  Repository: 5
+DependsOn:  386 edge(s)
+Repos:      5
+
+Tools:
+  get_resource_dependencies(resource_type, resource_name, direction, max_depth, repository)
+  find_resources_by_type(resource_type, repository, limit)
 ```
 
-When Neptune is not configured, the `neptune_*` fields are omitted and only
-Kendra diagnostics are returned.
+When Neptune is not configured, returns an error message indicating which
+environment variable is missing.
 
 ---
 
@@ -385,42 +434,64 @@ Run the smoke-test suite against the live index:
 task mcp:test
 ```
 
-This executes `mcp/test_server.py` which runs up to six checks:
+This executes `mcp/test_server.py` which runs up to seven checks:
 
 | # | Check | Validates |
 |---|---|---|
-| 1 | `get_index_info` | Environment variables are set; index is ACTIVE; caller identity is correct |
+| 1 | `get_index_info` | Kendra index configuration is returned with region and index ID |
 | 2 | `search_hashicorp_docs` — basic query | Kendra retrieval returns at least one result |
 | 3 | `search_hashicorp_docs` — filtered query | Metadata filtering (product_family=vault) is exercised |
-| 4 | `search_hashicorp_docs` — no-results query | Edge case returns zero results with high min_score |
-| 5 | `find_resources_by_type` | Neptune query returns resources (Neptune only) |
-| 6 | `get_resource_dependencies` | Neptune dependency traversal works (Neptune only) |
+| 4 | `search_hashicorp_docs` — no-results query | Edge case returns "No results found" message |
+| 5 | `get_graph_info` | Neptune graph store configuration and counts (Neptune only) |
+| 6 | `find_resources_by_type` | Neptune query returns resources (Neptune only) |
+| 7 | `get_resource_dependencies` | Neptune dependency traversal works (Neptune only) |
 
-Neptune tests (5-6) run automatically when `NEPTUNE_ENDPOINT` or
-`NEPTUNE_PROXY_URL` is available; otherwise they are skipped.
+Neptune tests (5-7) run automatically when `NEPTUNE_ENDPOINT` or
+`NEPTUNE_PROXY_URL` is available; otherwise they are skipped with a
+`[SKIP]` marker.
 
 Expected output for a healthy deployment:
 
 ```
+============================================================
 Test 1: get_index_info
-PASS: region=us-east-1 index_id=a1b2c3d4-... status=ACTIVE neptune=ok
+============================================================
+[PASS] index info — region set
+[PASS] index info — index ID set
 
-Test 2: search_hashicorp_docs (basic)
-PASS: 3 results, top confidence=HIGH
+============================================================
+Test 2: search_hashicorp_docs — basic query
+============================================================
+[PASS] basic search returns results
 
-Test 3: search_hashicorp_docs (product_family=vault)
-PASS: 5 results, all product_family=vault
+============================================================
+Test 3: search_hashicorp_docs — filtered by product_family=vault
+============================================================
+[PASS] filtered search returns results
 
-Test 4: search_hashicorp_docs (nonsense query, high min_score)
-PASS: 0 results (expected 0 for nonsense+high threshold)
+============================================================
+Test 4: search_hashicorp_docs — query with no expected results
+============================================================
+[PASS] no-results returns friendly message
 
-Test 5: find_resources_by_type (aws_iam_role)
-PASS: 12 resources found (0 is ok if graph is empty)
+============================================================
+Test 5: get_graph_info
+============================================================
+[PASS] graph info — region set
+[PASS] graph info — endpoint set
 
-Test 6: get_resource_dependencies (aws_iam_role, test, both)
-PASS: 3 dependencies found (0 is ok if resource doesn't exist)
+============================================================
+Test 6: find_resources_by_type — aws_iam_role
+============================================================
+[PASS] find_resources_by_type — returns rows
 
-All smoke tests passed.
+============================================================
+Test 7: get_resource_dependencies — both directions, depth 1
+============================================================
+[PASS] get_resource_dependencies — returns walk
+
+============================================================
+All tests passed.
 ```
 
 ---

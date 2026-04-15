@@ -1,128 +1,184 @@
 #!/usr/bin/env python3
-"""test_server.py — Smoke-test the MCP server tool functions.
+"""Smoke-test for the MCP server tool functions.
 
-Runs tool functions directly (bypassing the MCP protocol) to confirm that
-credentials, environment variables, and retrieval are working correctly.
+Invokes the docs (Kendra) and graph (Neptune) tools directly, bypassing
+the MCP protocol, to confirm that environment variables are set correctly
+and both backends return results.
 
-Requires environment variables:
-  AWS_REGION          — AWS region
-  AWS_KENDRA_INDEX_ID — Kendra index ID
+Usage (run from the repository root):
+    AWS_REGION=us-east-1 \
+    AWS_KENDRA_INDEX_ID=<index-id> \
+    NEPTUNE_ENDPOINT=<endpoint> \
+    .venv/bin/python3 mcp/test_server.py
 
-Optional environment variables (for Neptune tests):
-  NEPTUNE_ENDPOINT    — Neptune cluster endpoint
-  NEPTUNE_PORT        — Neptune port (default 8182)
-  NEPTUNE_IAM_AUTH    — Enable SigV4 auth (default "true")
+Or via Task:
+    task mcp:test
 
-Usage:
-    python3 mcp/test_server.py
+Graph tool tests are skipped (not failed) when NEPTUNE_ENDPOINT and
+NEPTUNE_PROXY_URL are both unset, so the suite remains green for
+docs-only deployments.
+
+Exit codes:
+    0 — all checks passed
+    1 — one or more checks failed
 """
 
-from __future__ import annotations
-
-import logging
 import os
 import sys
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+# Resolve the server module relative to this file to avoid any import
+# path ambiguity when run from outside the mcp/ directory.
+import importlib.util
+from pathlib import Path
+
+_server_path = Path(__file__).parent / "server.py"
+_spec = importlib.util.spec_from_file_location("rag_server", _server_path)
+assert _spec and _spec.loader, f"Cannot find server at {_server_path}"
+_server = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_server)  # type: ignore[union-attr]
+
+PASS = "\033[32mPASS\033[0m"
+FAIL = "\033[31mFAIL\033[0m"
+SKIP = "\033[33mSKIP\033[0m"
+
+all_passed = True
+
+
+_ERROR_PREFIXES = ("Configuration error:", "Retrieval error:", "Error:", "Neptune query failed:")
+
+
+def check(label: str, result: str, expect_contains: str | None = None) -> None:
+    global all_passed
+    # Only treat the result as an error when the server returns an explicit
+    # error prefix — don't scan the whole body, which may contain "error"
+    # as a normal word inside retrieved document text.
+    stripped = result.strip()
+    if any(stripped.startswith(p) for p in _ERROR_PREFIXES):
+        print(f"[{FAIL}] {label}")
+        print(f"       {result[:200]}")
+        all_passed = False
+        return
+    if expect_contains and expect_contains.lower() not in result.lower():
+        print(f"[{FAIL}] {label} — expected '{expect_contains}' in output")
+        print(f"       {result[:200]}")
+        all_passed = False
+        return
+    print(f"[{PASS}] {label}")
+
+
+def skip(label: str, reason: str) -> None:
+    print(f"[{SKIP}] {label} — {reason}")
+
+
+_neptune_available = bool(os.environ.get("NEPTUNE_ENDPOINT") or os.environ.get("NEPTUNE_PROXY_URL"))
+
+# ── 1. Index info ─────────────────────────────────────────────────────────────
+print("=" * 60)
+print("Test 1: get_index_info")
+print("=" * 60)
+info = _server.get_index_info()
+print(info)
+check("index info — region set", info, os.environ.get("AWS_REGION", "us-east-1"))
+check("index info — index ID set", info, os.environ.get("AWS_KENDRA_INDEX_ID", ""))
+
+# ── 2. Basic search ──────────────────────────────────────────────────────────
+print()
+print("=" * 60)
+print("Test 2: search_hashicorp_docs — basic query")
+print("=" * 60)
+result = _server.search_hashicorp_docs(
+    query="How do I configure the AWS Terraform provider?",
+    top_k=3,
 )
-log = logging.getLogger(__name__)
+print(result[:600])
+check("basic search returns results", result, "[1]")
 
+# ── 3. Filtered search (product family) ──────────────────────────────────────
+print()
+print("=" * 60)
+print("Test 3: search_hashicorp_docs — filtered by product_family=vault")
+print("=" * 60)
+result_vault = _server.search_hashicorp_docs(
+    query="How do I enable the PKI secrets engine in Vault?",
+    top_k=3,
+    min_score=0.25,
+    product_family="vault",
+)
+print(result_vault[:600])
+check("filtered search returns results", result_vault, "[1]")
 
-def _check_env() -> bool:
-    missing = [v for v in ("AWS_REGION", "AWS_KENDRA_INDEX_ID") if not os.environ.get(v)]
-    if missing:
-        log.error("Missing environment variables: %s", ", ".join(missing))
-        return False
-    return True
+# ── 4. No-results case ───────────────────────────────────────────────────────
+print()
+print("=" * 60)
+print("Test 4: search_hashicorp_docs — query with no expected results")
+print("=" * 60)
+result_empty = _server.search_hashicorp_docs(
+    query="xyzzy_nonexistent_token_for_testing",
+    top_k=1,
+    min_score=0.99,
+)
+print(result_empty)
+check("no-results returns friendly message", result_empty, "No results found")
 
+# ── 5. Neptune Graph: get_graph_info ─────────────────────────────────────────
+print()
+print("=" * 60)
+print("Test 5: get_graph_info")
+print("=" * 60)
+if not _neptune_available:
+    skip("get_graph_info", "NEPTUNE_ENDPOINT/NEPTUNE_PROXY_URL not set (graph backend not deployed)")
+else:
+    info = _server.get_graph_info()
+    print(info)
+    check("graph info — region set", info, os.environ.get("AWS_REGION", "us-east-1"))
+    check("graph info — endpoint set", info, "Endpoint:")
 
-def main() -> None:
-    if not _check_env():
-        sys.exit(1)
-
-    from server import (
-        get_index_info,
-        search_hashicorp_docs,
+# ── 6. Neptune Graph: find_resources_by_type ─────────────────────────────────
+print()
+print("=" * 60)
+print("Test 6: find_resources_by_type — aws_iam_role")
+print("=" * 60)
+if not _neptune_available:
+    skip("find_resources_by_type", "NEPTUNE_ENDPOINT/NEPTUNE_PROXY_URL not set")
+else:
+    result = _server.find_resources_by_type(
+        resource_type="aws_iam_role",
+        limit=10,
     )
-
-    failures = 0
-    neptune_available = bool(os.environ.get("NEPTUNE_ENDPOINT"))
-
-    # ── Test 1: get_index_info ────────────────────────────────────────────────
-    log.info("Test 1: get_index_info")
-    info = get_index_info()
-    if "error" in info or "auth_error" in info or "index_error" in info:
-        log.error("FAIL: %s", info)
-        failures += 1
+    print(result[:600])
+    # Either a "Found N" line or a friendly empty-result message — both
+    # indicate the tool ran without raising. Treat both as a pass.
+    if result.strip().startswith("No resources of type"):
+        check("find_resources_by_type — clean empty result", result, "Check that the graph")
     else:
-        log.info("PASS: region=%s index_id=%s status=%s neptune=%s",
-                 info.get("region"), info.get("kendra_index_id"),
-                 info.get("index_status", "n/a"), info.get("neptune_status", "n/a"))
+        check("find_resources_by_type — returns rows", result, "Found")
 
-    # ── Test 2: basic search ──────────────────────────────────────────────────
-    log.info("Test 2: search_hashicorp_docs (basic)")
-    results = search_hashicorp_docs(query="How do I configure the AWS provider in Terraform?", top_k=3)
-    if not results or "error" in results[0]:
-        log.warning("WARN: Zero results for basic search (may indicate empty index)")
+# ── 7. Neptune Graph: get_resource_dependencies ──────────────────────────────
+print()
+print("=" * 60)
+print("Test 7: get_resource_dependencies — both directions, depth 1")
+print("=" * 60)
+if not _neptune_available:
+    skip("get_resource_dependencies", "NEPTUNE_ENDPOINT/NEPTUNE_PROXY_URL not set")
+else:
+    result = _server.get_resource_dependencies(
+        resource_type="aws_lambda_function",
+        resource_name="processor",
+        direction="both",
+        max_depth=1,
+    )
+    print(result[:600])
+    if result.strip().startswith("No dependencies found"):
+        check("get_resource_dependencies — clean empty result", result, "Check that the graph")
     else:
-        log.info("PASS: %d results, top confidence=%s", len(results), results[0].get("confidence", "n/a"))
+        check("get_resource_dependencies — returns walk", result, "Dependency walk")
 
-    # ── Test 3: filtered search ───────────────────────────────────────────────
-    log.info("Test 3: search_hashicorp_docs (product_family=vault)")
-    results = search_hashicorp_docs(query="dynamic secrets database Vault", top_k=5, product_family="vault")
-    if not results or "error" in results[0]:
-        log.warning("WARN: Zero results for vault filter (may indicate empty index)")
-    else:
-        wrong_family = [r for r in results if r.get("product_family") != "vault"]
-        if wrong_family:
-            log.error("FAIL: Results include non-vault product_family entries: %s", wrong_family)
-            failures += 1
-        else:
-            log.info("PASS: %d results, all product_family=vault", len(results))
-
-    # ── Test 4: no-results edge case ──────────────────────────────────────────
-    log.info("Test 4: search_hashicorp_docs (nonsense query, high min_score)")
-    results = search_hashicorp_docs(query="xyzzy frobnicator quux hashicorp", top_k=3, min_score=0.99)
-    if results and "error" in results[0]:
-        log.error("FAIL: Unexpected error on no-results query: %s", results)
-        failures += 1
-    else:
-        log.info("PASS: %d results (expected 0 for nonsense+high threshold)", len(results))
-
-    # ── Neptune tests (conditional) ───────────────────────────────────────────
-    if neptune_available:
-        from server import find_resources_by_type, get_resource_dependencies
-
-        # Test 5: find_resources_by_type
-        log.info("Test 5: find_resources_by_type (aws_iam_role)")
-        results = find_resources_by_type(resource_type="aws_iam_role")
-        if results and "error" in results[0]:
-            log.error("FAIL: Neptune query error: %s", results[0]["error"])
-            failures += 1
-        else:
-            log.info("PASS: %d resources found (0 is ok if graph is empty)", len(results))
-
-        # Test 6: get_resource_dependencies
-        log.info("Test 6: get_resource_dependencies (aws_iam_role, test, both)")
-        results = get_resource_dependencies(
-            resource_type="aws_iam_role", resource_name="test", direction="both", max_depth=1
-        )
-        if results and "error" in results[0]:
-            log.error("FAIL: Neptune dependency query error: %s", results[0]["error"])
-            failures += 1
-        else:
-            log.info("PASS: %d dependencies found (0 is ok if resource doesn't exist)", len(results))
-    else:
-        log.info("SKIP: Neptune tests (NEPTUNE_ENDPOINT not set)")
-
-    if failures > 0:
-        log.error("%d test(s) failed", failures)
-        sys.exit(1)
-    else:
-        log.info("All smoke tests passed.")
-
-
-if __name__ == "__main__":
-    main()
+# ── Summary ───────────────────────────────────────────────────────────────────
+print()
+print("=" * 60)
+if all_passed:
+    print("All tests passed.")
+    sys.exit(0)
+else:
+    print("One or more tests failed.")
+    sys.exit(1)

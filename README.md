@@ -12,14 +12,15 @@ MCP server:
    [rover](https://github.com/im2nguyen/rover), and loads it into an
    **Amazon Neptune** property graph. Opt-in via `create_neptune = true`.
 
-Four MCP tools are exposed through `mcp/server.py`:
+Five MCP tools are exposed through `mcp/server.py`:
 
 | Tool | Backend | Purpose |
 |---|---|---|
-| `search_hashicorp_docs` | Amazon Kendra | Keyword + semantic search over docs/issues/discuss/blog |
-| `get_resource_dependencies` | Amazon Neptune | Walk Terraform dependency graph (upstream/downstream) |
-| `find_resources_by_type` | Amazon Neptune | List every resource of a given type, optionally per repo |
-| `get_index_info` | Kendra + Neptune | Inspect region, Kendra index, Neptune connectivity, and status |
+| `search_hashicorp_docs` | Amazon Kendra | Keyword + semantic search over docs/issues/discuss/blog with deduplication |
+| `get_index_info` | Amazon Kendra | Inspect region, Kendra index status, and available metadata filters |
+| `get_resource_dependencies` | Amazon Neptune | Walk Terraform dependency graph (upstream/downstream), optionally per repo |
+| `find_resources_by_type` | Amazon Neptune | List every resource of a given type, optionally per repo, with limit control |
+| `get_graph_info` | Amazon Neptune | Inspect Neptune connectivity, node/edge counts, and status |
 
 Clone it, set a few variables, and run `task up` — a single command
 provisions all docs-side infrastructure and ingests the documentation. The
@@ -292,10 +293,11 @@ task mcp:test       # smoke-test retrieval (Kendra + Neptune if deployed)
 
 Available tools:
 
-- **`search_hashicorp_docs`** — keyword + semantic search with optional `product_family` and `source_type` filters
-- **`get_resource_dependencies`** — traverse Terraform resource dependency graph (downstream, upstream, or both)
-- **`find_resources_by_type`** — list all resources of a given type, optionally filtered by repository
-- **`get_index_info`** — inspect region, Kendra index, Neptune connectivity, and status
+- **`search_hashicorp_docs`** — keyword + semantic search with optional `product`, `product_family`, and `source_type` filters; URI and content deduplication
+- **`get_index_info`** — inspect region, Kendra index status, and available metadata filters
+- **`get_resource_dependencies`** — traverse Terraform resource dependency graph (downstream, upstream, or both), optionally filtered by repository
+- **`find_resources_by_type`** — list all resources of a given type, optionally filtered by repository, with configurable limit (1-500)
+- **`get_graph_info`** — inspect Neptune connectivity, node/edge counts, and repository count
 
 ### Claude Code via Amazon Bedrock
 

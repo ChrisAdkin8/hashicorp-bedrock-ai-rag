@@ -326,7 +326,8 @@ The graph pipeline is opt-in (`create_neptune = true` in `terraform.tfvars`) and
 | Smoke-test the store | `task graph:test` |
 | Inspect last 5 runs | `task graph:status` |
 | File counts in RAG bucket | `task bucket:report` |
-| Inspect counts from MCP | `mcp__hashicorp_rag__get_graph_info` |
+| Inspect index from MCP | `mcp__hashicorp_rag__get_index_info` |
+| Inspect graph from MCP | `mcp__hashicorp_rag__get_graph_info` |
 
 ### Investigating a failed graph run
 

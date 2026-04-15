@@ -175,12 +175,23 @@ Build environment: `BUILD_GENERAL1_MEDIUM`, `amazonlinux2-x86_64-standard:5.0`, 
 
 See `docs/MCP_SERVER.md` for full tool reference and configuration.
 
-Tools: `search_hashicorp_docs` (Kendra query with `AttributeFilter`),
-`get_resource_dependencies` (Neptune graph walk), `find_resources_by_type`
-(Neptune lookup), `get_index_info` (diagnostics).
+Five tools across two backends:
 
+- `search_hashicorp_docs` — Kendra query with `AttributeFilter`, URI + content
+  deduplication, chunk header stripping. Accepts `product`, `product_family`,
+  and `source_type` filters. Returns formatted string.
+- `get_index_info` — Kendra index configuration, available metadata filters,
+  and default retrieval settings.
+- `get_resource_dependencies` — Neptune graph walk (downstream/upstream/both),
+  with optional `repository` filter. Returns formatted string.
+- `find_resources_by_type` — Neptune resource lookup with optional `repository`
+  filter and `limit` (1-500). Returns formatted string.
+- `get_graph_info` — Neptune connectivity, node/edge counts, repo count.
+
+All tools return formatted strings (not dicts/lists) for consistent output.
 Kendra returns `product`, `product_family`, `source_type` directly from
-`.metadata.json` sidecars — no path inference required.
+`.metadata.json` sidecars. URI path inference is used as a fallback for
+`product` filtering.
 
 ---
 
