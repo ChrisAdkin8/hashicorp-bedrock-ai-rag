@@ -25,6 +25,7 @@ import argparse
 import json
 import logging
 import sys
+import textwrap
 import urllib.parse
 
 import boto3
@@ -462,8 +463,8 @@ def _find_index_region(index_id: str, exclude: str) -> str | None:
     return None
 
 
-def kendra_retrieve(client: object, index_id: str, query: str, top_k: int) -> str:
-    """Query Kendra and return concatenated excerpt text."""
+def kendra_retrieve(client: object, index_id: str, query: str, top_k: int) -> tuple[str, int]:
+    """Query Kendra and return concatenated excerpt text and chunk count."""
     resp = client.query(IndexId=index_id, QueryText=query, PageSize=top_k)
     chunks = [
         item.get("DocumentExcerpt", {}).get("Text", "")
@@ -472,13 +473,13 @@ def kendra_retrieve(client: object, index_id: str, query: str, top_k: int) -> st
     ]
     if not chunks:
         log.warning("No Kendra results for: %s", query)
-    return "\n\n---\n\n".join(chunks)
+    return "\n\n---\n\n".join(chunks), len(chunks)
 
 
 # ── Neptune helpers ───────────────────────────────────────────────────────────
 
-def neptune_query(endpoint: str, port: int, region: str, query: str, *, proxy_url: str = "") -> str:
-    """Execute an openCypher query and return the result as text.
+def neptune_query(endpoint: str, port: int, region: str, query: str, *, proxy_url: str = "") -> tuple[str, int]:
+    """Execute an openCypher query and return the result as text and row count.
 
     When *proxy_url* is set, routes through the API Gateway + Lambda proxy
     instead of connecting directly to Neptune.
@@ -500,10 +501,11 @@ def neptune_query(endpoint: str, port: int, region: str, query: str, *, proxy_ur
 
     resp = requests.post(url, data=body, headers=headers, timeout=30)
     resp.raise_for_status()
-    return json.dumps(resp.json().get("results", []), indent=2)
+    results = resp.json().get("results", [])
+    return json.dumps(results, indent=2), len(results)
 
 
-def _neptune_query_via_proxy(proxy_url: str, region: str, query: str) -> str:
+def _neptune_query_via_proxy(proxy_url: str, region: str, query: str) -> tuple[str, int]:
     """Execute an openCypher query via the API Gateway + Lambda proxy."""
     payload = json.dumps({"query": query, "parameters": {}})
     headers = {"Content-Type": "application/json"}
@@ -515,7 +517,8 @@ def _neptune_query_via_proxy(proxy_url: str, region: str, query: str) -> str:
 
     resp = requests.post(proxy_url, data=payload, headers=headers, timeout=30)
     resp.raise_for_status()
-    return json.dumps(resp.json().get("results", []), indent=2)
+    results = resp.json().get("results", [])
+    return json.dumps(results, indent=2), len(results)
 
 
 def validate_neptune(endpoint: str, port: int, region: str, *, proxy_url: str = "", required: bool = True) -> bool:
@@ -525,7 +528,7 @@ def validate_neptune(endpoint: str, port: int, region: str, *, proxy_url: str = 
     logs a warning and returns False instead of aborting.
     """
     try:
-        neptune_query(endpoint, port, region, "MATCH (n) RETURN count(n) AS total LIMIT 1", proxy_url=proxy_url)
+        neptune_query(endpoint, port, region, "MATCH (n) RETURN count(n) AS total LIMIT 1", proxy_url=proxy_url)  # noqa: discard result
         target = proxy_url or f"{endpoint}:{port}"
         log.info("Neptune at '%s' is reachable.", target)
         return True
@@ -550,91 +553,212 @@ def validate_neptune(endpoint: str, port: int, region: str, *, proxy_url: str = 
 
 # ── Test runners ──────────────────────────────────────────────────────────────
 
-def _print_header(title: str) -> None:
-    print(f"\n{'=' * 85}")
-    print(f"  {title}")
-    print(f"{'=' * 85}")
-    print(f"\n{'Query':<60} {'Result':>6} {'Raw':>8} {'Saving':>8}")
-    print("-" * 85)
+def print_results(results: list[dict], label: str, *, verbose: bool = False) -> None:
+    """Print per-query results and summary table.
 
+    Args:
+        results: List of result dicts.
+        label: Section label (e.g. "Kendra", "Graph", "All").
+        verbose: If True, show per-query detail before the summary table.
+    """
+    # ── Per-query results (verbose only) ─────────────────────────────────
+    if verbose:
+        for r in results:
+            print(f"── {r['topic']} {'─' * max(1, 56 - len(r['topic']))}")
+            if r["error"]:
+                print(f"  ERROR: {r['error']}")
+                continue
+            print(f"  Rows/chunks retrieved : {r['chunks']}")
+            print(f"  Retrieval tokens      : {r['retrieval_tokens']:,}")
+            if "kendra_tokens" in r:
+                print(f"    ├─ Kendra tokens    : {r['kendra_tokens']:,}  ({r['kendra_chunks']} chunks)")
+                print(f"    └─ Graph tokens     : {r['graph_tokens']:,}  ({r['graph_rows']} rows)")
+            if r.get("why_combined"):
+                print(f"  Why combined          : {r['why_combined']}")
+            if r["raw_tokens"] > 0:
+                print(f"  Raw tokens estimate   : {r['raw_tokens']:,}  ({r['raw_sources']})")
+                print(f"  Token saving          : {r['saving_pct']:.0f}%")
+            print()
 
-def _print_summary(label: str, total_result: int, total_raw: int, n: int) -> None:
-    print("-" * 85)
-    if total_raw == 0:
-        log.warning("No results for %s tests.", label)
+    # ── Summary table ────────────────────────────────────────────────────
+    valid = [r for r in results if not r["error"] and r["raw_tokens"] > 0]
+    if not valid:
+        print(f"No valid {label} results to summarise.")
         return
-    saving = int((1 - total_result / total_raw) * 100)
-    print(f"{'Total':<60} {total_result:>6} {total_raw:>8} {saving:>7}%")
-    print(f"\nAverage result tokens/query: {total_result // max(n, 1)}")
-    print(f"Average raw tokens/query:    {total_raw // max(n, 1)}")
-    print(f"Overall token saving:        {saving}%")
+
+    total_ret = sum(r["retrieval_tokens"] for r in valid)
+    total_raw = sum(r["raw_tokens"] for r in valid)
+    overall_saving = ((total_raw - total_ret) / total_raw) * 100 if total_raw else 0
+
+    # Compute query column width from data so all columns stay aligned.
+    qw = max(len(r["topic"]) for r in valid)
+    qw = max(qw, len("TOTAL"), len("Query")) + 2  # pad for readability
+    table_width = qw + 10 + 8 + 8  # Retrieved + Raw + Saving columns
+
+    print(f"\n{'=' * table_width}")
+    print(f"SUMMARY — {label}")
+    print(f"{'=' * table_width}")
+    print()
+    header = f"{'Query':<{qw}} {'Retrieved':>10} {'Raw':>8} {'Saving':>8}"
+    print(header)
+    print("─" * table_width)
+    for r in valid:
+        print(
+            f"{r['topic']:<{qw}} {r['retrieval_tokens']:>9,} {r['raw_tokens']:>7,}"
+            f" {r['saving_pct']:>6.0f}%"
+        )
+    print("─" * table_width)
+    print(
+        f"{'TOTAL':<{qw}} {total_ret:>9,} {total_raw:>7,} {overall_saving:>6.0f}%"
+    )
+    print()
+
+    avg_chunks = sum(r["chunks"] for r in valid) / len(valid)
+    avg_ret = total_ret / len(valid)
+    avg_raw = total_raw / len(valid)
+
+    print(
+        textwrap.dedent(f"""\
+    Key findings ({label}):
+    • Average retrieval: {avg_ret:,.0f} tokens ({avg_chunks:.1f} rows/chunks)
+    • Average raw:       {avg_raw:,.0f} tokens
+    • Overall saving:    {overall_saving:.0f}%
+    • Retrieval delivers focused context using {100 - overall_saving:.0f}% of
+      the tokens required by raw sources.""")
+    )
 
 
-def run_kendra_tests(client: object, index_id: str, top_k: int) -> tuple[int, int]:
-    _print_header("Kendra RAG — Token Efficiency")
-    total_rag, total_raw = 0, 0
+def run_kendra_tests(client: object, index_id: str, top_k: int) -> list[dict]:
+    """Run Kendra token efficiency tests and return result dicts."""
+    results: list[dict] = []
     for test in KENDRA_TEST_QUERIES:
-        query, raw_tokens = test["query"], test["raw_tokens_estimate"]
+        topic = test["topic"]
+        raw_estimate = test["raw_tokens_estimate"]
         try:
-            context = kendra_retrieve(client, index_id, query, top_k)
-            rag_tokens = _count_tokens(context)
-        except Exception as exc:
-            log.error("Kendra retrieval failed for '%s': %s", query[:40], exc)
-            continue
-        saving_pct = int((1 - rag_tokens / raw_tokens) * 100) if raw_tokens > 0 else 0
-        short = query[:58] + ".." if len(query) > 60 else query
-        print(f"{short:<60} {rag_tokens:>6} {raw_tokens:>8} {saving_pct:>7}%")
-        total_rag += rag_tokens
-        total_raw += raw_tokens
-    _print_summary("Kendra", total_rag, total_raw, len(KENDRA_TEST_QUERIES))
-    return total_rag, total_raw
+            context, chunk_count = kendra_retrieve(client, index_id, test["query"], top_k)
+            rag_tokens = _count_tokens(context) if context else 0
+            saving_pct = (
+                ((raw_estimate - rag_tokens) / raw_estimate) * 100
+                if raw_estimate > 0 and rag_tokens > 0
+                else 0.0
+            )
+            results.append({
+                "topic": f"[Kendra] {topic}",
+                "chunks": chunk_count,
+                "retrieval_tokens": rag_tokens,
+                "raw_tokens": raw_estimate,
+                "saving_pct": saving_pct,
+                "raw_sources": test.get("raw_sources", ""),
+                "error": None,
+            })
+        except Exception as exc:  # noqa: BLE001
+            log.error("Kendra retrieval failed for '%s': %s", topic, exc)
+            results.append({
+                "topic": f"[Kendra] {topic}",
+                "chunks": 0,
+                "retrieval_tokens": 0,
+                "raw_tokens": raw_estimate,
+                "saving_pct": 0.0,
+                "raw_sources": test.get("raw_sources", ""),
+                "error": str(exc),
+            })
+    return results
 
 
-def run_graph_tests(endpoint: str, port: int, region: str, *, proxy_url: str = "") -> tuple[int, int]:
-    _print_header("Neptune Graph — Token Efficiency")
-    total_graph, total_raw = 0, 0
+def run_graph_tests(
+    endpoint: str, port: int, region: str, *, proxy_url: str = "",
+) -> list[dict]:
+    """Run Neptune graph token efficiency tests and return result dicts."""
+    results: list[dict] = []
     for test in GRAPH_TEST_QUERIES:
-        query, cypher, raw_tokens = test["query"], test["cypher"], test["raw_tokens_estimate"]
+        topic = test["topic"]
+        raw_estimate = test["raw_tokens_estimate"]
         try:
-            result_text = neptune_query(endpoint, port, region, cypher, proxy_url=proxy_url)
-            graph_tokens = _count_tokens(result_text)
-        except Exception as exc:
-            log.error("Neptune query failed for '%s': %s", query[:40], exc)
-            continue
-        saving_pct = int((1 - graph_tokens / raw_tokens) * 100) if raw_tokens > 0 else 0
-        short = query[:58] + ".." if len(query) > 60 else query
-        print(f"{short:<60} {graph_tokens:>6} {raw_tokens:>8} {saving_pct:>7}%")
-        total_graph += graph_tokens
-        total_raw += raw_tokens
-    _print_summary("Graph", total_graph, total_raw, len(GRAPH_TEST_QUERIES))
-    return total_graph, total_raw
+            result_text, row_count = neptune_query(
+                endpoint, port, region, test["cypher"], proxy_url=proxy_url,
+            )
+            graph_tokens = _count_tokens(result_text) if result_text else 0
+            saving_pct = (
+                ((raw_estimate - graph_tokens) / raw_estimate) * 100
+                if raw_estimate > 0 and graph_tokens > 0
+                else 0.0
+            )
+            results.append({
+                "topic": f"[Graph] {topic}",
+                "chunks": row_count,
+                "retrieval_tokens": graph_tokens,
+                "raw_tokens": raw_estimate,
+                "saving_pct": saving_pct,
+                "raw_sources": test.get("raw_sources", ""),
+                "error": None,
+            })
+        except Exception as exc:  # noqa: BLE001
+            log.error("Neptune query failed for '%s': %s", topic, exc)
+            results.append({
+                "topic": f"[Graph] {topic}",
+                "chunks": 0,
+                "retrieval_tokens": 0,
+                "raw_tokens": raw_estimate,
+                "saving_pct": 0.0,
+                "raw_sources": test.get("raw_sources", ""),
+                "error": str(exc),
+            })
+    return results
 
 
 def run_combined_tests(
     client: object, index_id: str, top_k: int,
     endpoint: str, port: int, region: str,
     *, proxy_url: str = "",
-) -> tuple[int, int]:
-    _print_header("Combined (Kendra + Neptune) — Token Efficiency")
-    total_combined, total_raw = 0, 0
+) -> list[dict]:
+    """Run combined (Kendra + Neptune) token efficiency tests and return result dicts."""
+    results: list[dict] = []
     for test in COMBINED_TEST_QUERIES:
-        query = test["rag_query"]
-        raw_tokens = test["raw_tokens_estimate"]
+        topic = test["topic"]
+        raw_estimate = test["raw_tokens_estimate"]
         try:
-            kendra_text = kendra_retrieve(client, index_id, test["rag_query"], top_k)
-            graph_text = neptune_query(endpoint, port, region, test["cypher"], proxy_url=proxy_url)
+            kendra_text, kendra_chunks = kendra_retrieve(
+                client, index_id, test["rag_query"], top_k,
+            )
+            graph_text, graph_rows = neptune_query(
+                endpoint, port, region, test["cypher"], proxy_url=proxy_url,
+            )
             combined_text = kendra_text + "\n\n--- Graph Context ---\n\n" + graph_text
-            combined_tokens = _count_tokens(combined_text)
-        except Exception as exc:
-            log.error("Combined query failed for '%s': %s", query[:40], exc)
-            continue
-        saving_pct = int((1 - combined_tokens / raw_tokens) * 100) if raw_tokens > 0 else 0
-        short = query[:58] + ".." if len(query) > 60 else query
-        print(f"{short:<60} {combined_tokens:>6} {raw_tokens:>8} {saving_pct:>7}%")
-        total_combined += combined_tokens
-        total_raw += raw_tokens
-    _print_summary("Combined", total_combined, total_raw, len(COMBINED_TEST_QUERIES))
-    return total_combined, total_raw
+            combined_tokens = _count_tokens(combined_text) if combined_text else 0
+            kendra_tok = _count_tokens(kendra_text) if kendra_text else 0
+            graph_tok = _count_tokens(graph_text) if graph_text else 0
+            total_chunks = kendra_chunks + graph_rows
+            saving_pct = (
+                ((raw_estimate - combined_tokens) / raw_estimate) * 100
+                if raw_estimate > 0 and combined_tokens > 0
+                else 0.0
+            )
+            results.append({
+                "topic": f"[Combined] {topic}",
+                "chunks": total_chunks,
+                "retrieval_tokens": combined_tokens,
+                "raw_tokens": raw_estimate,
+                "saving_pct": saving_pct,
+                "raw_sources": test.get("raw_sources", ""),
+                "error": None,
+                "kendra_tokens": kendra_tok,
+                "kendra_chunks": kendra_chunks,
+                "graph_tokens": graph_tok,
+                "graph_rows": graph_rows,
+                "why_combined": test.get("why_combined", ""),
+            })
+        except Exception as exc:  # noqa: BLE001
+            log.error("Combined query failed for '%s': %s", topic, exc)
+            results.append({
+                "topic": f"[Combined] {topic}",
+                "chunks": 0,
+                "retrieval_tokens": 0,
+                "raw_tokens": raw_estimate,
+                "saving_pct": 0.0,
+                "raw_sources": test.get("raw_sources", ""),
+                "error": str(exc),
+            })
+    return results
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -650,6 +774,8 @@ def main() -> None:
                         help="API Gateway URL for Neptune proxy (overrides direct access)")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--mode", choices=["kendra", "graph", "combined", "all"], default="all")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show per-query detail before each summary table")
     args = parser.parse_args()
 
     needs_kendra = args.mode in ("kendra", "combined", "all")
@@ -688,40 +814,55 @@ def main() -> None:
             required=(args.mode != "all"),
         )
 
-    grand_result, grand_raw = 0, 0
+    all_results: list[dict] = []
+    has_failure = False
+    verbose = args.verbose
 
-    if args.mode in ("kendra", "all"):
-        r, raw = run_kendra_tests(kendra_client, args.kendra_index_id, args.top_k)
-        grand_result += r
-        grand_raw += raw
+    if needs_kendra:
+        if verbose:
+            print(f"\n{'=' * 72}")
+            print("KENDRA RAG QUERIES")
+            print(f"{'=' * 72}\n")
+        kendra_results = run_kendra_tests(kendra_client, args.kendra_index_id, args.top_k)
+        all_results.extend(kendra_results)
+        print_results(kendra_results, "Kendra", verbose=verbose)
 
     if args.mode in ("graph", "all") and (args.mode == "graph" or neptune_ok):
-        r, raw = run_graph_tests(args.neptune_endpoint, args.neptune_port, args.region,
-                                 proxy_url=args.neptune_proxy_url)
-        grand_result += r
-        grand_raw += raw
+        if verbose:
+            print(f"\n{'=' * 72}")
+            print("NEPTUNE GRAPH QUERIES")
+            print(f"{'=' * 72}\n")
+        graph_results = run_graph_tests(
+            args.neptune_endpoint, args.neptune_port, args.region,
+            proxy_url=args.neptune_proxy_url,
+        )
+        all_results.extend(graph_results)
+        print_results(graph_results, "Graph", verbose=verbose)
 
     if args.mode in ("combined", "all") and (args.mode == "combined" or neptune_ok):
-        r, raw = run_combined_tests(
+        if verbose:
+            print(f"\n{'=' * 72}")
+            print("COMBINED QUERIES (require both Kendra + Neptune)")
+            print(f"{'=' * 72}\n")
+        combined_results = run_combined_tests(
             kendra_client, args.kendra_index_id, args.top_k,
             args.neptune_endpoint, args.neptune_port, args.region,
             proxy_url=args.neptune_proxy_url,
         )
-        grand_result += r
-        grand_raw += raw
+        all_results.extend(combined_results)
+        print_results(combined_results, "Combined (Kendra + Neptune)", verbose=verbose)
 
-    if args.mode == "all" and grand_raw > 0:
-        print(f"\n{'=' * 85}")
-        print("  Grand Total — All Modes")
-        print(f"{'=' * 85}")
-        overall_saving = int((1 - grand_result / grand_raw) * 100)
-        print(f"\nTotal retrieval tokens: {grand_result:,}")
-        print(f"Total raw tokens:      {grand_raw:,}")
-        print(f"Overall token saving:  {overall_saving}%")
+    # Overall summary when multiple sections ran
+    needs_combined = args.mode in ("combined", "all")
+    if sum([needs_kendra, needs_neptune, needs_combined]) > 1:
+        print_results(all_results, "All", verbose=verbose)
 
-    if grand_raw == 0:
-        log.error("No queries returned results. Check that the indexes have been populated.")
-        sys.exit(1)
+    valid = [r for r in all_results if not r["error"] and r["raw_tokens"] > 0]
+    if not valid:
+        print("No valid results to summarise.")
+        has_failure = True
+
+    sys.exit(1 if has_failure else 0)
 
 
 if __name__ == "__main__":
